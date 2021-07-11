@@ -1,48 +1,47 @@
 include $(top_srcdir)/config/Rules.am
 
-VPATH = \
-	$(top_srcdir)/lib/libspl \
-	$(top_srcdir)/lib/libspl/$(TARGET_ASM_DIR)
+SUBDIRS = include
 
-AM_CFLAGS += $(DEBUG_STACKFLAGS) $(FRAME_LARGER_THAN)
+noinst_LTLIBRARIES = libspl_assert.la libspl.la
 
-SUBDIRS = include $(TARGET_ASM_DIR)
-DIST_SUBDIRS = include asm-generic asm-i386 asm-x86_64
-
-DEFAULT_INCLUDES += \
-	-I$(top_srcdir)/lib/libspl/include
-
-AM_CCASFLAGS = \
-	$(CFLAGS)
-
-noinst_LTLIBRARIES = libspl.la
+libspl_assert_la_SOURCES = \
+	assert.c
 
 USER_C = \
+	libspl_impl.h \
+	atomic.c \
 	getexecname.c \
-	gethostid.c \
-	gethrtime.c \
-	gethrestime.c \
-	getmntany.c \
 	list.c \
 	mkdirp.c \
 	page.c \
 	strlcat.c \
 	strlcpy.c \
-	strnlen.c \
 	timestamp.c \
-	zone.c \
 	include/sys/list.h \
 	include/sys/list_impl.h
 
-USER_ASM = atomic.S
+if BUILD_LINUX
+USER_C += \
+	os/linux/getexecname.c \
+	os/linux/gethostid.c \
+	os/linux/getmntany.c \
+	os/linux/zone.c
+endif
 
-KERNEL_C =
+if BUILD_FREEBSD
+USER_C += \
+	os/freebsd/getexecname.c \
+	os/freebsd/gethostid.c \
+	os/freebsd/getmntany.c \
+	os/freebsd/mnttab.c \
+	os/freebsd/zone.c
+endif
 
-nodist_libspl_la_SOURCES = \
-	$(USER_C) \
-	$(USER_ASM) \
-	$(KERNEL_C)
+libspl_la_SOURCES = $(USER_C)
 
-libspl_la_LIBADD = -lrt
+libspl_la_LIBADD = \
+	libspl_assert.la
 
-EXTRA_DIST = $(USER_C)
+libspl_la_LIBADD += $(LIBATOMIC_LIBS) $(LIBCLOCK_GETTIME)
+
+include $(top_srcdir)/config/CppCheck.am

@@ -1,1 +1,5 @@
-dist_bin_SCRIPTS = dbufstat.py
+include $(top_srcdir)/config/Substfiles.am
+
+bin_SCRIPTS = dbufstat
+
+SUBSTFILES += $(bin_SCRIPTS)

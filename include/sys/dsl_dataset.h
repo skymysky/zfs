@@ -20,8 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2011, 2015 by Delphix. All rights reserved.
- * Copyright (c) 2011, 2014 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2018 by Delphix. All rights reserved.
  * Copyright (c) 2013 Steven Hartland. All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  */
@@ -37,7 +36,7 @@
 #include <sys/dsl_synctask.h>
 #include <sys/zfs_context.h>
 #include <sys/dsl_deadlist.h>
-#include <sys/refcount.h>
+#include <sys/zfs_refcount.h>
 #include <sys/rrwlock.h>
 #include <sys/dsl_crypt.h>
 #include <zfeature_common.h>
@@ -46,10 +45,13 @@
 extern "C" {
 #endif
 
+extern int zfs_allow_redacted_dataset_mount;
 struct dsl_dataset;
 struct dsl_dir;
 struct dsl_pool;
 struct dsl_crypto_params;
+struct dsl_key_mapping;
+struct zfs_bookmark_phys;
 
 #define	DS_FLAG_INCONSISTENT	(1ULL<<0)
 #define	DS_IS_INCONSISTENT(ds)	\
@@ -110,6 +112,24 @@ struct dsl_crypto_params;
 #define	DS_FIELD_RESUME_RAWOK "com.datto:resume_rawok"
 
 /*
+ * This field is set to the object number of the remap deadlist if one exists.
+ */
+#define	DS_FIELD_REMAP_DEADLIST	"com.delphix:remap_deadlist"
+
+/*
+ * We were receiving an incremental from a redaction bookmark, and these are the
+ * guids of its snapshots.
+ */
+#define	DS_FIELD_RESUME_REDACT_BOOKMARK_SNAPS \
+	"com.delphix:resume_redact_book_snaps"
+
+/*
+ * This field is set to the ivset guid for encrypted snapshots. This is used
+ * for validating raw receives.
+ */
+#define	DS_FIELD_IVSET_GUID	"com.datto:ivset_guid"
+
+/*
  * DS_FLAG_CI_DATASET is set if the dataset contains a file system whose
  * name lookups should be performed case-insensitively.
  */
@@ -161,14 +181,34 @@ typedef struct dsl_dataset {
 	uint64_t ds_object;
 	uint64_t ds_fsid_guid;
 	boolean_t ds_is_snapshot;
+	struct dsl_key_mapping *ds_key_mapping;
 
 	/* only used in syncing context, only valid for non-snapshots: */
 	struct dsl_dataset *ds_prev;
-	uint64_t ds_bookmarks;  /* DMU_OTN_ZAP_METADATA */
+	uint64_t ds_bookmarks_obj;  /* DMU_OTN_ZAP_METADATA */
+	avl_tree_t ds_bookmarks; /* dsl_bookmark_node_t */
 
 	/* has internal locking: */
 	dsl_deadlist_t ds_deadlist;
 	bplist_t ds_pending_deadlist;
+
+	/*
+	 * The remap deadlist contains blocks (DVA's, really) that are
+	 * referenced by the previous snapshot and point to indirect vdevs,
+	 * but in this dataset they have been remapped to point to concrete
+	 * (or at least, less-indirect) vdevs.  In other words, the
+	 * physical DVA is referenced by the previous snapshot but not by
+	 * this dataset.  Logically, the DVA continues to be referenced,
+	 * but we are using a different (less indirect) physical DVA.
+	 * This deadlist is used to determine when physical DVAs that
+	 * point to indirect vdevs are no longer referenced anywhere,
+	 * and thus should be marked obsolete.
+	 *
+	 * This is only used if SPA_FEATURE_OBSOLETE_COUNTS is enabled.
+	 */
+	dsl_deadlist_t ds_remap_deadlist;
+	/* protects creation of the ds_remap_deadlist */
+	kmutex_t ds_remap_deadlist_lock;
 
 	/* protected by lock on pool's dp_dirty_datasets list */
 	txg_node_t ds_dirty_link;
@@ -189,7 +229,7 @@ typedef struct dsl_dataset {
 	 * Owning counts as a long hold.  See the comments above
 	 * dsl_pool_hold() for details.
 	 */
-	refcount_t ds_longholds;
+	zfs_refcount_t ds_longholds;
 
 	/* no locking; only for making guesses */
 	uint64_t ds_trysnap_txg;
@@ -218,13 +258,13 @@ typedef struct dsl_dataset {
 	 * For ZFEATURE_FLAG_PER_DATASET features, set if this dataset
 	 * uses this feature.
 	 */
-	uint8_t ds_feature_inuse[SPA_FEATURES];
+	void *ds_feature[SPA_FEATURES];
 
 	/*
 	 * Set if we need to activate the feature on this dataset this txg
 	 * (used only in syncing context).
 	 */
-	uint8_t ds_feature_activation_needed[SPA_FEATURES];
+	void *ds_feature_activation[SPA_FEATURES];
 
 	/* Protected by ds_lock; keep at end of struct for better locality */
 	char ds_snapname[ZFS_MAX_DATASET_NAME_LEN];
@@ -233,8 +273,34 @@ typedef struct dsl_dataset {
 static inline dsl_dataset_phys_t *
 dsl_dataset_phys(dsl_dataset_t *ds)
 {
-	return (ds->ds_dbuf->db_data);
+	return ((dsl_dataset_phys_t *)ds->ds_dbuf->db_data);
 }
+
+typedef struct dsl_dataset_promote_arg {
+	const char *ddpa_clonename;
+	dsl_dataset_t *ddpa_clone;
+	list_t shared_snaps, origin_snaps, clone_snaps;
+	dsl_dataset_t *origin_origin; /* origin of the origin */
+	uint64_t used, comp, uncomp, unique, cloneusedsnap, originusedsnap;
+	nvlist_t *err_ds;
+	cred_t *cr;
+	proc_t *proc;
+} dsl_dataset_promote_arg_t;
+
+typedef struct dsl_dataset_rollback_arg {
+	const char *ddra_fsname;
+	const char *ddra_tosnap;
+	void *ddra_owner;
+	nvlist_t *ddra_result;
+} dsl_dataset_rollback_arg_t;
+
+typedef struct dsl_dataset_snapshot_arg {
+	nvlist_t *ddsa_snaps;
+	nvlist_t *ddsa_props;
+	nvlist_t *ddsa_errors;
+	cred_t *ddsa_cr;
+	proc_t *ddsa_proc;
+} dsl_dataset_snapshot_arg_t;
 
 /*
  * The max length of a temporary tag prefix is the number of hex digits
@@ -250,6 +316,7 @@ dsl_dataset_phys(dsl_dataset_t *ds)
 
 /* flags for holding the dataset */
 typedef enum ds_hold_flags {
+	DS_HOLD_FLAG_NONE	= 0 << 0,
 	DS_HOLD_FLAG_DECRYPT	= 1 << 0 /* needs access to encrypted data */
 } ds_hold_flags_t;
 
@@ -259,28 +326,38 @@ int dsl_dataset_hold_flags(struct dsl_pool *dp, const char *name,
     ds_hold_flags_t flags, void *tag, dsl_dataset_t **dsp);
 boolean_t dsl_dataset_try_add_ref(struct dsl_pool *dp, dsl_dataset_t *ds,
     void *tag);
-int dsl_dataset_hold_obj(struct dsl_pool *dp, uint64_t dsobj, void *tag,
-    dsl_dataset_t **);
+int dsl_dataset_create_key_mapping(dsl_dataset_t *ds);
 int dsl_dataset_hold_obj_flags(struct dsl_pool *dp, uint64_t dsobj,
     ds_hold_flags_t flags, void *tag, dsl_dataset_t **);
-void dsl_dataset_rele(dsl_dataset_t *ds, void *tag);
+void dsl_dataset_remove_key_mapping(dsl_dataset_t *ds);
+int dsl_dataset_hold_obj(struct dsl_pool *dp, uint64_t dsobj,
+    void *tag, dsl_dataset_t **);
 void dsl_dataset_rele_flags(dsl_dataset_t *ds, ds_hold_flags_t flags,
     void *tag);
+void dsl_dataset_rele(dsl_dataset_t *ds, void *tag);
 int dsl_dataset_own(struct dsl_pool *dp, const char *name,
+    ds_hold_flags_t flags, void *tag, dsl_dataset_t **dsp);
+int dsl_dataset_own_force(struct dsl_pool *dp, const char *name,
     ds_hold_flags_t flags, void *tag, dsl_dataset_t **dsp);
 int dsl_dataset_own_obj(struct dsl_pool *dp, uint64_t dsobj,
     ds_hold_flags_t flags, void *tag, dsl_dataset_t **dsp);
+int dsl_dataset_own_obj_force(struct dsl_pool *dp, uint64_t dsobj,
+    ds_hold_flags_t flags, void *tag, dsl_dataset_t **dsp);
 void dsl_dataset_disown(dsl_dataset_t *ds, ds_hold_flags_t flags, void *tag);
 void dsl_dataset_name(dsl_dataset_t *ds, char *name);
+boolean_t dsl_dataset_tryown(dsl_dataset_t *ds, void *tag, boolean_t override);
 int dsl_dataset_namelen(dsl_dataset_t *ds);
 boolean_t dsl_dataset_has_owner(dsl_dataset_t *ds);
-boolean_t dsl_dataset_tryown(dsl_dataset_t *ds, void *tag);
 uint64_t dsl_dataset_create_sync(dsl_dir_t *pds, const char *lastname,
     dsl_dataset_t *origin, uint64_t flags, cred_t *,
     struct dsl_crypto_params *, dmu_tx_t *);
 uint64_t dsl_dataset_create_sync_dd(dsl_dir_t *dd, dsl_dataset_t *origin,
     struct dsl_crypto_params *dcp, uint64_t flags, dmu_tx_t *tx);
+void dsl_dataset_snapshot_sync(void *arg, dmu_tx_t *tx);
+int dsl_dataset_snapshot_check(void *arg, dmu_tx_t *tx);
 int dsl_dataset_snapshot(nvlist_t *snaps, nvlist_t *props, nvlist_t *errors);
+void dsl_dataset_promote_sync(void *arg, dmu_tx_t *tx);
+int dsl_dataset_promote_check(void *arg, dmu_tx_t *tx);
 int dsl_dataset_promote(const char *name, char *conflsnap);
 int dsl_dataset_rename_snapshot(const char *fsname,
     const char *oldsnapname, const char *newsnapname, boolean_t recursive);
@@ -301,21 +378,54 @@ void dsl_dataset_block_born(dsl_dataset_t *ds, const blkptr_t *bp,
     dmu_tx_t *tx);
 int dsl_dataset_block_kill(dsl_dataset_t *ds, const blkptr_t *bp,
     dmu_tx_t *tx, boolean_t async);
+void dsl_dataset_block_remapped(dsl_dataset_t *ds, uint64_t vdev,
+    uint64_t offset, uint64_t size, uint64_t birth, dmu_tx_t *tx);
 int dsl_dataset_snap_lookup(dsl_dataset_t *ds, const char *name,
     uint64_t *value);
 
 void dsl_dataset_dirty(dsl_dataset_t *ds, dmu_tx_t *tx);
-void dsl_dataset_stats(dsl_dataset_t *ds, nvlist_t *nv);
+
+int get_clones_stat_impl(dsl_dataset_t *ds, nvlist_t *val);
+char *get_receive_resume_stats_impl(dsl_dataset_t *ds);
+char *get_child_receive_stats(dsl_dataset_t *ds);
+uint64_t dsl_get_refratio(dsl_dataset_t *ds);
+uint64_t dsl_get_logicalreferenced(dsl_dataset_t *ds);
+uint64_t dsl_get_compressratio(dsl_dataset_t *ds);
+uint64_t dsl_get_used(dsl_dataset_t *ds);
+uint64_t dsl_get_creation(dsl_dataset_t *ds);
+uint64_t dsl_get_creationtxg(dsl_dataset_t *ds);
+uint64_t dsl_get_refquota(dsl_dataset_t *ds);
+uint64_t dsl_get_refreservation(dsl_dataset_t *ds);
+uint64_t dsl_get_guid(dsl_dataset_t *ds);
+uint64_t dsl_get_unique(dsl_dataset_t *ds);
+uint64_t dsl_get_objsetid(dsl_dataset_t *ds);
+uint64_t dsl_get_userrefs(dsl_dataset_t *ds);
+uint64_t dsl_get_defer_destroy(dsl_dataset_t *ds);
+uint64_t dsl_get_referenced(dsl_dataset_t *ds);
+uint64_t dsl_get_numclones(dsl_dataset_t *ds);
+uint64_t dsl_get_inconsistent(dsl_dataset_t *ds);
+uint64_t dsl_get_redacted(dsl_dataset_t *ds);
+uint64_t dsl_get_available(dsl_dataset_t *ds);
+int dsl_get_written(dsl_dataset_t *ds, uint64_t *written);
+int dsl_get_prev_snap(dsl_dataset_t *ds, char *snap);
+void dsl_get_redact_snaps(dsl_dataset_t *ds, nvlist_t *propval);
+int dsl_get_mountpoint(dsl_dataset_t *ds, const char *dsname, char *value,
+    char *source);
+
+void get_clones_stat(dsl_dataset_t *ds, nvlist_t *nv);
+void dsl_dataset_stats(dsl_dataset_t *os, nvlist_t *nv);
+
 void dsl_dataset_fast_stat(dsl_dataset_t *ds, dmu_objset_stats_t *stat);
 void dsl_dataset_space(dsl_dataset_t *ds,
     uint64_t *refdbytesp, uint64_t *availbytesp,
     uint64_t *usedobjsp, uint64_t *availobjsp);
 uint64_t dsl_dataset_fsid_guid(dsl_dataset_t *ds);
-int dsl_dataset_space_written(dsl_dataset_t *oldsnap, dsl_dataset_t *new,
+int dsl_dataset_space_written(dsl_dataset_t *oldsnap, dsl_dataset_t *newds,
     uint64_t *usedp, uint64_t *compp, uint64_t *uncompp);
+int dsl_dataset_space_written_bookmark(struct zfs_bookmark_phys *bmp,
+    dsl_dataset_t *newds, uint64_t *usedp, uint64_t *compp, uint64_t *uncompp);
 int dsl_dataset_space_wouldfree(dsl_dataset_t *firstsnap, dsl_dataset_t *last,
     uint64_t *usedp, uint64_t *compp, uint64_t *uncompp);
-boolean_t dsl_dataset_is_dirty(dsl_dataset_t *ds);
 
 int dsl_dsobj_to_dsname(char *pname, uint64_t obj, char *buf);
 
@@ -326,6 +436,8 @@ int dsl_dataset_set_refquota(const char *dsname, zprop_source_t source,
     uint64_t quota);
 int dsl_dataset_set_refreservation(const char *dsname, zprop_source_t source,
     uint64_t reservation);
+int dsl_dataset_set_compression(const char *dsname, zprop_source_t source,
+    uint64_t compression);
 
 boolean_t dsl_dataset_is_before(dsl_dataset_t *later, dsl_dataset_t *earlier,
     uint64_t earlier_txg);
@@ -338,7 +450,7 @@ int dsl_dataset_clone_swap_check_impl(dsl_dataset_t *clone,
 void dsl_dataset_clone_swap_sync_impl(dsl_dataset_t *clone,
     dsl_dataset_t *origin_head, dmu_tx_t *tx);
 int dsl_dataset_snapshot_check_impl(dsl_dataset_t *ds, const char *snapname,
-    dmu_tx_t *tx, boolean_t recv, uint64_t cnt, cred_t *cr);
+    dmu_tx_t *tx, boolean_t recv, uint64_t cnt, cred_t *cr, proc_t *proc);
 void dsl_dataset_snapshot_sync_impl(dsl_dataset_t *ds, const char *snapname,
     dmu_tx_t *tx);
 
@@ -355,13 +467,27 @@ void dsl_dataset_set_refreservation_sync_impl(dsl_dataset_t *ds,
 void dsl_dataset_zapify(dsl_dataset_t *ds, dmu_tx_t *tx);
 boolean_t dsl_dataset_is_zapified(dsl_dataset_t *ds);
 boolean_t dsl_dataset_has_resume_receive_state(dsl_dataset_t *ds);
+
+int dsl_dataset_rollback_check(void *arg, dmu_tx_t *tx);
+void dsl_dataset_rollback_sync(void *arg, dmu_tx_t *tx);
 int dsl_dataset_rollback(const char *fsname, const char *tosnap, void *owner,
     nvlist_t *result);
 
-void dsl_dataset_activate_feature(uint64_t dsobj,
-    spa_feature_t f, dmu_tx_t *tx);
-void dsl_dataset_deactivate_feature(uint64_t dsobj,
-    spa_feature_t f, dmu_tx_t *tx);
+uint64_t dsl_dataset_get_remap_deadlist_object(dsl_dataset_t *ds);
+void dsl_dataset_create_remap_deadlist(dsl_dataset_t *ds, dmu_tx_t *tx);
+boolean_t dsl_dataset_remap_deadlist_exists(dsl_dataset_t *ds);
+void dsl_dataset_destroy_remap_deadlist(dsl_dataset_t *ds, dmu_tx_t *tx);
+
+void dsl_dataset_activate_feature(uint64_t dsobj, spa_feature_t f, void *arg,
+    dmu_tx_t *tx);
+void dsl_dataset_deactivate_feature(dsl_dataset_t *ds, spa_feature_t f,
+    dmu_tx_t *tx);
+boolean_t dsl_dataset_feature_is_active(dsl_dataset_t *ds, spa_feature_t f);
+boolean_t dsl_dataset_get_uint64_array_feature(dsl_dataset_t *ds,
+    spa_feature_t f, uint64_t *outlength, uint64_t **outp);
+
+void dsl_dataset_activate_redaction(dsl_dataset_t *ds, uint64_t *redact_snaps,
+    uint64_t num_redact_snaps, dmu_tx_t *tx);
 
 #ifdef ZFS_DEBUG
 #define	dprintf_ds(ds, fmt, ...) do { \

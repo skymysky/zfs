@@ -1,33 +1,43 @@
 SUBDIRS = \
 	acl \
+	alloc_class \
+	arc \
 	atime \
 	bootfs \
+	btree \
 	cache \
 	cachefile \
 	casenorm \
+	channel_program \
 	chattr \
 	checksum \
 	clean_mirror \
 	cli_root \
 	cli_user \
 	compression \
+	cp_files \
 	ctime \
+	deadman \
 	delegate \
 	devices \
 	events \
 	exec \
+	fallocate \
 	fault \
 	features \
-	grow_pool \
-	grow_replicas \
+	grow \
 	history \
 	hkdf \
 	inheritance \
 	inuse \
+	io \
+	l2arc \
 	large_files \
 	largest_pool \
 	libzfs \
+	limits \
 	link_count \
+	log_spacemap \
 	migration \
 	mmap \
 	mmp \
@@ -37,14 +47,21 @@ SUBDIRS = \
 	no_space \
 	nopwrite \
 	online_offline \
+	pam \
+	pool_checkpoint \
 	pool_names \
 	poolversion \
 	privilege \
+	procfs \
+	projectquota \
+	pyzfs \
 	quota \
 	raidz \
+	redacted_send \
 	redundancy \
 	refquota \
 	refreserv \
+	removal \
 	rename_dirs \
 	replacement \
 	reservation \
@@ -55,12 +72,20 @@ SUBDIRS = \
 	snapshot \
 	snapused \
 	sparse \
+	suid \
 	threadsappend \
-	tmpfile \
+	trim \
 	truncate \
 	upgrade \
+	user_namespace \
 	userquota \
 	vdev_zaps \
 	write_dirs \
 	xattr \
+	zpool_influxdb \
 	zvol
+
+if BUILD_LINUX
+SUBDIRS += \
+	tmpfile
+endif

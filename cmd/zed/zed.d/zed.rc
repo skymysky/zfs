@@ -52,9 +52,9 @@
 
 ##
 # Send notifications for 'ereport.fs.zfs.data' events.
-# Disabled by default
+# Disabled by default, any non-empty value will enable the feature.
 #
-#ZED_NOTIFY_DATA=1
+#ZED_NOTIFY_DATA=
 
 ##
 # Pushbullet access token.
@@ -75,6 +75,31 @@
 #ZED_PUSHBULLET_CHANNEL_TAG=""
 
 ##
+# Slack Webhook URL.
+# This allows posting to the given channel and includes an access token.
+#   <https://api.slack.com/incoming-webhooks>
+# Disabled by default; uncomment to enable.
+#
+#ZED_SLACK_WEBHOOK_URL=""
+
+##
+# Pushover token.
+# This defines the application from which the notification will be sent.
+#   <https://pushover.net/api#registration>
+# Disabled by default; uncomment to enable.
+# ZED_PUSHOVER_USER, below, must also be configured.
+#
+#ZED_PUSHOVER_TOKEN=""
+
+##
+# Pushover user key.
+# This defines which user or group will receive Pushover notifications.
+#  <https://pushover.net/api#identifiers>
+# Disabled by default; uncomment to enable.
+# ZED_PUSHOVER_TOKEN, above, must also be configured.
+#ZED_PUSHOVER_USER=""
+
+##
 # Default directory for zed state files.
 #
 #ZED_RUNDIR="/var/run"
@@ -86,6 +111,10 @@
 #
 ZED_USE_ENCLOSURE_LEDS=1
 
+##
+# Run a scrub after every resilver
+# Disabled by default, 1 to enable and 0 to disable.
+#ZED_SCRUB_AFTER_RESILVER=0
 
 ##
 # The syslog priority (e.g., specified as a "facility.level" pair).
@@ -96,4 +125,20 @@ ZED_USE_ENCLOSURE_LEDS=1
 # The syslog tag for marking zed events.
 #
 #ZED_SYSLOG_TAG="zed"
+
+##
+# Which set of event subclasses to log
+# By default, events from all subclasses are logged.
+# If ZED_SYSLOG_SUBCLASS_INCLUDE is set, only subclasses
+# matching the pattern are logged. Use the pipe symbol (|)
+# or shell wildcards (*, ?) to match multiple subclasses.
+# Otherwise, if ZED_SYSLOG_SUBCLASS_EXCLUDE is set, the
+# matching subclasses are excluded from logging.
+#ZED_SYSLOG_SUBCLASS_INCLUDE="checksum|scrub_*|vdev.*"
+ZED_SYSLOG_SUBCLASS_EXCLUDE="history_event"
+
+##
+# Use GUIDs instead of names when logging pool and vdevs
+# Disabled by default, 1 to enable and 0 to disable.
+#ZED_SYSLOG_DISPLAY_GUIDS=1
 

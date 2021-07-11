@@ -61,7 +61,7 @@ fs=$TESTPOOL/$TESTFS1; newfs=$TESTPOOL/newfs; fsclone=$TESTPOOL/clone
 vol=$TESTPOOL/$TESTVOL ; newvol=$TESTPOOL/newvol; volclone=$TESTPOOL/volclone
 fssnap=$fs@fssnap; fssnap2=$fs@fssnap2
 volsnap=$vol@volsnap; volsnap2=$vol@volsnap2
-tmpfile=/tmp/tmpfile.$$ ; tmpfile2=/tmp/tmpfile2.$$
+tmpfile=$TEST_BASE_DIR/tmpfile.$$ ; tmpfile2=$TEST_BASE_DIR/tmpfile2.$$
 
 if is_linux; then
 #	property	value		property	value
@@ -72,8 +72,8 @@ props=(
 	mountpoint	/history.$$	mountpoint	legacy
 	mountpoint	none		compression	lz4
 	compression	on		compression	off
-	compression	lzjb		acltype		noacl
-	acltype		posixacl	xattr		sa
+	compression	lzjb		acltype		off
+	acltype		posix		acltype		nfsv4
 	atime		on		atime		off
 	devices		on		devices		off
 	exec		on		exec		off
@@ -84,9 +84,39 @@ props=(
 	aclinherit	discard		aclinherit	noallow
 	aclinherit	secure		aclinherit	passthrough
 	canmount	off		canmount	on
-	xattr		on		xattr		off
 	compression	gzip		compression	gzip-$((RANDOM%9 + 1))
-	copies		$((RANDOM%3 + 1))
+	compression     zstd		compression	zstd-$((RANDOM%9 + 1))
+	compression	zstd-fast	copies          $((RANDOM%3 + 1))
+	compression	zstd-fast-$((RANDOM%9 + 1))	xattr	sa
+	xattr		on		xattr		off
+)
+elif is_freebsd; then
+#	property	value		property	value
+#
+props=(
+	quota		64M		recordsize	512
+	reservation	32M		reservation	none
+	mountpoint	/history.$$	mountpoint	legacy
+	mountpoint	none		sharenfs	on
+	sharenfs	off
+	compression	on		compression	off
+	compression	lzjb		aclmode		discard
+	aclmode		groupmask	aclmode		passthrough
+	atime		on		atime		off
+	devices		on		devices		off
+	exec		on		exec		off
+	setuid		on		setuid		off
+	readonly	on		readonly	off
+	jailed		on		jailed		off
+	snapdir		hidden		snapdir		visible
+	aclinherit	discard		aclinherit	noallow
+	aclinherit	secure		aclinherit	passthrough
+	canmount	off		canmount	on
+	compression	gzip		compression	gzip-$((RANDOM%9 + 1))
+	compression     zstd		compression	zstd-$((RANDOM%9 + 1))
+	compression	zstd-fast	copies          $((RANDOM%3 + 1))
+	compression	zstd-fast-$((RANDOM%9 + 1))	acltype	off
+	acltype		posix		acltype		nfsv4
 )
 else
 #	property	value		property	value
@@ -143,8 +173,8 @@ run_and_verify "zfs snapshot $fssnap2"
 run_and_verify "zfs snapshot $volsnap2"
 
 # Send isn't logged...
-log_must zfs send -i $fssnap $fssnap2 > $tmpfile
-log_must zfs send -i $volsnap $volsnap2 > $tmpfile2
+log_must eval "zfs send -i $fssnap $fssnap2 > $tmpfile"
+log_must eval "zfs send -i $volsnap $volsnap2 > $tmpfile2"
 # Verify that's true
 zpool history $TESTPOOL | grep 'zfs send' >/dev/null 2>&1 && \
     log_fail "'zfs send' found in history of \"$TESTPOOL\""

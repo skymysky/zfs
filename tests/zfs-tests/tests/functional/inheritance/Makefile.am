@@ -1,8 +1,12 @@
 pkgdatadir = $(datadir)/@PACKAGE@/zfs-tests/tests/functional/inheritance
 dist_pkgdata_SCRIPTS = \
-	inherit.kshlib \
 	cleanup.ksh \
-	inherit_001_pos.ksh \
+	inherit_001_pos.ksh
+
+dist_pkgdata_DATA = \
+	README.config \
+	README.state \
+	inherit.kshlib \
 	config001.cfg \
 	config002.cfg \
 	config003.cfg \

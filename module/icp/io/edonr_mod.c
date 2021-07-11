@@ -25,9 +25,9 @@
 
 #include <sys/modctl.h>
 #include <sys/crypto/common.h>
+#include <sys/crypto/icp.h>
 #include <sys/crypto/spi.h>
 #include <sys/sysmacros.h>
-#include <sys/systm.h>
 #include <sys/edonr.h>
 
 /*

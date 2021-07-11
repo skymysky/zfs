@@ -36,7 +36,7 @@
 #	Verify 'zfs receive' fails with malformed parameters.
 #
 # STRATEGY:
-#	1. Denfine malformed parameters array
+#	1. Define malformed parameters array
 #	2. Feed the malformed parameters to 'zfs receive'
 #	3. Verify the command should be failed
 #
@@ -64,13 +64,13 @@ log_onexit cleanup
 
 init_snap=$TESTPOOL/$TESTFS@initsnap
 inc_snap=$TESTPOOL/$TESTFS@incsnap
-full_bkup=/var/tmp/full_bkup.$$
-inc_bkup=/var/tmp/inc_bkup.$$
+full_bkup=$TEST_BASE_DIR/full_bkup.$$
+inc_bkup=$TEST_BASE_DIR/inc_bkup.$$
 
 init_topsnap=$TESTPOOL@initsnap
 inc_topsnap=$TESTPOOL@incsnap
-full_topbkup=/var/tmp/full_topbkup.$$
-inc_topbkup=/var/tmp/inc_topbkup.$$
+full_topbkup=$TEST_BASE_DIR/full_topbkup.$$
+inc_topbkup=$TEST_BASE_DIR/inc_topbkup.$$
 
 log_must zfs snapshot $init_topsnap
 log_must eval "zfs send $init_topsnap > $full_topbkup"
@@ -92,15 +92,10 @@ sync
 
 set -A badargs \
     "" "nonexistent-snap" "blah@blah" "-d" "-d nonexistent-dataset" \
-    "$TESTPOOL/$TESTFS" "$TESTPOOL1" "$TESTPOOL/fs@" "$TESTPOOL/fs@@mysnap" \
+    "$TESTPOOL1" "$TESTPOOL/fs@" "$TESTPOOL/fs@@mysnap" \
     "$TESTPOOL/fs@@" "$TESTPOOL/fs/@mysnap" "$TESTPOOL/fs@/mysnap" \
     "$TESTPOOL/nonexistent-fs/nonexistent-fs" "-d $TESTPOOL/nonexistent-fs" \
     "-d $TESTPOOL/$TESTFS/nonexistent-fs"
-
-if is_global_zone ; then
-	typeset -i n=${#badargs[@]}
-	badargs[$n]="-d $TESTPOOL"
-fi
 
 typeset -i i=0
 while (( i < ${#badargs[*]} ))

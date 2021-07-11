@@ -82,7 +82,7 @@ typedef struct kstat {
 	void		*ks_data;	/* kstat type-specific data */
 	uint_t		ks_ndata;	/* # of type-specific data records */
 	size_t		ks_data_size;	/* total size of kstat data section */
-	hrtime_t	ks_snaptime;	/* time of last data shapshot */
+	hrtime_t	ks_snaptime;	/* time of last data snapshot */
 	/*
 	 * Fields relevant to kernel only
 	 */
@@ -304,6 +304,8 @@ typedef struct kstat32 {
 #define	KSTAT_FLAG_PERSISTENT		0x08
 #define	KSTAT_FLAG_DORMANT		0x10
 #define	KSTAT_FLAG_INVALID		0x20
+#define	KSTAT_FLAG_LONGSTRINGS		0x40
+#define	KSTAT_FLAG_NO_HEADERS		0x80
 
 /*
  * Dynamic update support
@@ -794,12 +796,6 @@ extern void kstat_delete_byname(const char *, int, const char *);
 extern void kstat_delete_byname_zone(const char *, int, const char *, zoneid_t);
 extern void kstat_named_init(kstat_named_t *, const char *, uchar_t);
 extern void kstat_timer_init(kstat_timer_t *, const char *);
-extern void kstat_waitq_enter(kstat_io_t *);
-extern void kstat_waitq_exit(kstat_io_t *);
-extern void kstat_runq_enter(kstat_io_t *);
-extern void kstat_runq_exit(kstat_io_t *);
-extern void kstat_waitq_to_runq(kstat_io_t *);
-extern void kstat_runq_back_to_waitq(kstat_io_t *);
 extern void kstat_timer_start(kstat_timer_t *);
 extern void kstat_timer_stop(kstat_timer_t *);
 

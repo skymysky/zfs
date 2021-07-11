@@ -20,39 +20,41 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2018 by Delphix. All rights reserved.
  * Copyright (c) 2016 Actifio, Inc. All rights reserved.
  */
 
 #include <assert.h>
 #include <fcntl.h>
+#include <libgen.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <zlib.h>
-#include <libgen.h>
-#include <sys/signal.h>
+#include <libzutil.h>
+#include <sys/crypto/icp.h>
+#include <sys/processor.h>
+#include <sys/rrwlock.h>
 #include <sys/spa.h>
 #include <sys/stat.h>
-#include <sys/processor.h>
-#include <sys/zfs_context.h>
-#include <sys/rrwlock.h>
-#include <sys/utsname.h>
-#include <sys/time.h>
 #include <sys/systeminfo.h>
+#include <sys/time.h>
+#include <sys/utsname.h>
+#include <sys/zfs_context.h>
+#include <sys/zfs_onexit.h>
+#include <sys/zfs_vfsops.h>
+#include <sys/zstd/zstd.h>
+#include <sys/zvol.h>
 #include <zfs_fletcher.h>
-#include <sys/crypto/icp.h>
+#include <zlib.h>
 
 /*
  * Emulation of kernel services in userland.
  */
 
-int aok;
 uint64_t physmem;
-vnode_t *rootdir = (vnode_t *)0xabcd1234;
 char hw_serial[HW_HOSTID_LEN];
 struct utsname hw_utsname;
-vmem_t *zio_arena = NULL;
 
 /* If set, all blocks read will be copied to the specified directory. */
 char *vn_dumpdir = NULL;
@@ -143,36 +145,6 @@ kstat_install(kstat_t *ksp)
 /*ARGSUSED*/
 void
 kstat_delete(kstat_t *ksp)
-{}
-
-/*ARGSUSED*/
-void
-kstat_waitq_enter(kstat_io_t *kiop)
-{}
-
-/*ARGSUSED*/
-void
-kstat_waitq_exit(kstat_io_t *kiop)
-{}
-
-/*ARGSUSED*/
-void
-kstat_runq_enter(kstat_io_t *kiop)
-{}
-
-/*ARGSUSED*/
-void
-kstat_runq_exit(kstat_io_t *kiop)
-{}
-
-/*ARGSUSED*/
-void
-kstat_waitq_to_runq(kstat_io_t *kiop)
-{}
-
-/*ARGSUSED*/
-void
-kstat_runq_back_to_waitq(kstat_io_t *kiop)
 {}
 
 void
@@ -297,6 +269,16 @@ rw_tryenter(krwlock_t *rwlp, krw_t rw)
 	return (0);
 }
 
+/* ARGSUSED */
+uint32_t
+zone_get_hostid(void *zonep)
+{
+	/*
+	 * We're emulating the system's hostid in userland.
+	 */
+	return (strtoul(hw_serial, NULL, 10));
+}
+
 int
 rw_tryupgrade(krwlock_t *rwlp)
 {
@@ -329,12 +311,19 @@ cv_wait(kcondvar_t *cv, kmutex_t *mp)
 	mp->m_owner = pthread_self();
 }
 
-clock_t
+int
+cv_wait_sig(kcondvar_t *cv, kmutex_t *mp)
+{
+	cv_wait(cv, mp);
+	return (1);
+}
+
+int
 cv_timedwait(kcondvar_t *cv, kmutex_t *mp, clock_t abstime)
 {
 	int error;
 	struct timeval tv;
-	timestruc_t ts;
+	struct timespec ts;
 	clock_t delta;
 
 	delta = abstime - ddi_get_lbolt();
@@ -363,13 +352,13 @@ cv_timedwait(kcondvar_t *cv, kmutex_t *mp, clock_t abstime)
 }
 
 /*ARGSUSED*/
-clock_t
+int
 cv_timedwait_hires(kcondvar_t *cv, kmutex_t *mp, hrtime_t tim, hrtime_t res,
     int flag)
 {
 	int error;
 	struct timeval tv;
-	timestruc_t ts;
+	struct timespec ts;
 	hrtime_t delta;
 
 	ASSERT(flag == 0 || flag == CALLOUT_FLAG_ABSOLUTE);
@@ -416,236 +405,62 @@ cv_broadcast(kcondvar_t *cv)
 
 /*
  * =========================================================================
- * vnode operations
+ * procfs list
  * =========================================================================
  */
-/*
- * Note: for the xxxat() versions of these functions, we assume that the
- * starting vp is always rootdir (which is true for spa_directory.c, the only
- * ZFS consumer of these interfaces).  We assert this is true, and then emulate
- * them by adding '/' in front of the path.
- */
 
-/*ARGSUSED*/
-int
-vn_open(char *path, int x1, int flags, int mode, vnode_t **vpp, int x2, int x3)
+void
+seq_printf(struct seq_file *m, const char *fmt, ...)
+{}
+
+void
+procfs_list_install(const char *module,
+    const char *submodule,
+    const char *name,
+    mode_t mode,
+    procfs_list_t *procfs_list,
+    int (*show)(struct seq_file *f, void *p),
+    int (*show_header)(struct seq_file *f),
+    int (*clear)(procfs_list_t *procfs_list),
+    size_t procfs_list_node_off)
 {
-	int fd = -1;
-	int dump_fd = -1;
-	vnode_t *vp;
-	int old_umask = 0;
-	char *realpath;
-	struct stat64 st;
-	int err;
-
-	realpath = umem_alloc(MAXPATHLEN, UMEM_NOFAIL);
-
-	/*
-	 * If we're accessing a real disk from userland, we need to use
-	 * the character interface to avoid caching.  This is particularly
-	 * important if we're trying to look at a real in-kernel storage
-	 * pool from userland, e.g. via zdb, because otherwise we won't
-	 * see the changes occurring under the segmap cache.
-	 * On the other hand, the stupid character device returns zero
-	 * for its size.  So -- gag -- we open the block device to get
-	 * its size, and remember it for subsequent VOP_GETATTR().
-	 */
-#if defined(__sun__) || defined(__sun)
-	if (strncmp(path, "/dev/", 5) == 0) {
-#else
-	if (0) {
-#endif
-		char *dsk;
-		fd = open64(path, O_RDONLY);
-		if (fd == -1) {
-			err = errno;
-			free(realpath);
-			return (err);
-		}
-		if (fstat64(fd, &st) == -1) {
-			err = errno;
-			close(fd);
-			free(realpath);
-			return (err);
-		}
-		close(fd);
-		(void) sprintf(realpath, "%s", path);
-		dsk = strstr(path, "/dsk/");
-		if (dsk != NULL)
-			(void) sprintf(realpath + (dsk - path) + 1, "r%s",
-			    dsk + 1);
-	} else {
-		(void) sprintf(realpath, "%s", path);
-		if (!(flags & FCREAT) && stat64(realpath, &st) == -1) {
-			err = errno;
-			free(realpath);
-			return (err);
-		}
-	}
-
-	if (!(flags & FCREAT) && S_ISBLK(st.st_mode)) {
-#ifdef __linux__
-		flags |= O_DIRECT;
-#endif
-		/* We shouldn't be writing to block devices in userspace */
-		VERIFY(!(flags & FWRITE));
-	}
-
-	if (flags & FCREAT)
-		old_umask = umask(0);
-
-	/*
-	 * The construct 'flags - FREAD' conveniently maps combinations of
-	 * FREAD and FWRITE to the corresponding O_RDONLY, O_WRONLY, and O_RDWR.
-	 */
-	fd = open64(realpath, flags - FREAD, mode);
-	if (fd == -1) {
-		err = errno;
-		free(realpath);
-		return (err);
-	}
-
-	if (flags & FCREAT)
-		(void) umask(old_umask);
-
-	if (vn_dumpdir != NULL) {
-		char *dumppath = umem_zalloc(MAXPATHLEN, UMEM_NOFAIL);
-		(void) snprintf(dumppath, MAXPATHLEN,
-		    "%s/%s", vn_dumpdir, basename(realpath));
-		dump_fd = open64(dumppath, O_CREAT | O_WRONLY, 0666);
-		umem_free(dumppath, MAXPATHLEN);
-		if (dump_fd == -1) {
-			err = errno;
-			free(realpath);
-			close(fd);
-			return (err);
-		}
-	} else {
-		dump_fd = -1;
-	}
-
-	free(realpath);
-
-	if (fstat64_blk(fd, &st) == -1) {
-		err = errno;
-		close(fd);
-		if (dump_fd != -1)
-			close(dump_fd);
-		return (err);
-	}
-
-	(void) fcntl(fd, F_SETFD, FD_CLOEXEC);
-
-	*vpp = vp = umem_zalloc(sizeof (vnode_t), UMEM_NOFAIL);
-
-	vp->v_fd = fd;
-	vp->v_size = st.st_size;
-	vp->v_path = spa_strdup(path);
-	vp->v_dump_fd = dump_fd;
-
-	return (0);
-}
-
-/*ARGSUSED*/
-int
-vn_openat(char *path, int x1, int flags, int mode, vnode_t **vpp, int x2,
-    int x3, vnode_t *startvp, int fd)
-{
-	char *realpath = umem_alloc(strlen(path) + 2, UMEM_NOFAIL);
-	int ret;
-
-	ASSERT(startvp == rootdir);
-	(void) sprintf(realpath, "/%s", path);
-
-	/* fd ignored for now, need if want to simulate nbmand support */
-	ret = vn_open(realpath, x1, flags, mode, vpp, x2, x3);
-
-	umem_free(realpath, strlen(path) + 2);
-
-	return (ret);
-}
-
-/*ARGSUSED*/
-int
-vn_rdwr(int uio, vnode_t *vp, void *addr, ssize_t len, offset_t offset,
-    int x1, int x2, rlim64_t x3, void *x4, ssize_t *residp)
-{
-	ssize_t rc, done = 0, split;
-
-	if (uio == UIO_READ) {
-		rc = pread64(vp->v_fd, addr, len, offset);
-		if (vp->v_dump_fd != -1 && rc != -1) {
-			int status;
-			status = pwrite64(vp->v_dump_fd, addr, rc, offset);
-			ASSERT(status != -1);
-		}
-	} else {
-		/*
-		 * To simulate partial disk writes, we split writes into two
-		 * system calls so that the process can be killed in between.
-		 */
-		int sectors = len >> SPA_MINBLOCKSHIFT;
-		split = (sectors > 0 ? rand() % sectors : 0) <<
-		    SPA_MINBLOCKSHIFT;
-		rc = pwrite64(vp->v_fd, addr, split, offset);
-		if (rc != -1) {
-			done = rc;
-			rc = pwrite64(vp->v_fd, (char *)addr + split,
-			    len - split, offset + split);
-		}
-	}
-
-#ifdef __linux__
-	if (rc == -1 && errno == EINVAL) {
-		/*
-		 * Under Linux, this most likely means an alignment issue
-		 * (memory or disk) due to O_DIRECT, so we abort() in order to
-		 * catch the offender.
-		 */
-		abort();
-	}
-#endif
-	if (rc == -1)
-		return (errno);
-
-	done += rc;
-
-	if (residp)
-		*residp = len - done;
-	else if (done != len)
-		return (EIO);
-	return (0);
+	mutex_init(&procfs_list->pl_lock, NULL, MUTEX_DEFAULT, NULL);
+	list_create(&procfs_list->pl_list,
+	    procfs_list_node_off + sizeof (procfs_list_node_t),
+	    procfs_list_node_off + offsetof(procfs_list_node_t, pln_link));
+	procfs_list->pl_next_id = 1;
+	procfs_list->pl_node_offset = procfs_list_node_off;
 }
 
 void
-vn_close(vnode_t *vp)
+procfs_list_uninstall(procfs_list_t *procfs_list)
+{}
+
+void
+procfs_list_destroy(procfs_list_t *procfs_list)
 {
-	close(vp->v_fd);
-	if (vp->v_dump_fd != -1)
-		close(vp->v_dump_fd);
-	spa_strfree(vp->v_path);
-	umem_free(vp, sizeof (vnode_t));
+	ASSERT(list_is_empty(&procfs_list->pl_list));
+	list_destroy(&procfs_list->pl_list);
+	mutex_destroy(&procfs_list->pl_lock);
+}
+
+#define	NODE_ID(procfs_list, obj) \
+		(((procfs_list_node_t *)(((char *)obj) + \
+		(procfs_list)->pl_node_offset))->pln_id)
+
+void
+procfs_list_add(procfs_list_t *procfs_list, void *p)
+{
+	ASSERT(MUTEX_HELD(&procfs_list->pl_lock));
+	NODE_ID(procfs_list, p) = procfs_list->pl_next_id++;
+	list_insert_tail(&procfs_list->pl_list, p);
 }
 
 /*
- * At a minimum we need to update the size since vdev_reopen()
- * will no longer call vn_openat().
+ * =========================================================================
+ * vnode operations
+ * =========================================================================
  */
-int
-fop_getattr(vnode_t *vp, vattr_t *vap)
-{
-	struct stat64 st;
-	int err;
-
-	if (fstat64_blk(vp->v_fd, &st) == -1) {
-		err = errno;
-		close(vp->v_fd);
-		return (err);
-	}
-
-	vap->va_size = st.st_size;
-	return (0);
-}
 
 /*
  * =========================================================================
@@ -724,41 +539,58 @@ dprintf_setup(int *argc, char **argv)
  * =========================================================================
  */
 void
-__dprintf(const char *file, const char *func, int line, const char *fmt, ...)
+__dprintf(boolean_t dprint, const char *file, const char *func,
+    int line, const char *fmt, ...)
 {
-	const char *newfile;
+	/* Get rid of annoying "../common/" prefix to filename. */
+	const char *newfile = zfs_basename(file);
+
 	va_list adx;
+	if (dprint) {
+		/* dprintf messages are printed immediately */
 
-	/*
-	 * Get rid of annoying "../common/" prefix to filename.
-	 */
-	newfile = strrchr(file, '/');
-	if (newfile != NULL) {
-		newfile = newfile + 1; /* Get rid of leading / */
-	} else {
-		newfile = file;
-	}
+		if (!dprintf_print_all &&
+		    !dprintf_find_string(newfile) &&
+		    !dprintf_find_string(func))
+			return;
 
-	if (dprintf_print_all ||
-	    dprintf_find_string(newfile) ||
-	    dprintf_find_string(func)) {
 		/* Print out just the function name if requested */
 		flockfile(stdout);
 		if (dprintf_find_string("pid"))
 			(void) printf("%d ", getpid());
 		if (dprintf_find_string("tid"))
-			(void) printf("%u ", (uint_t)pthread_self());
+			(void) printf("%ju ",
+			    (uintmax_t)(uintptr_t)pthread_self());
 		if (dprintf_find_string("cpu"))
 			(void) printf("%u ", getcpuid());
 		if (dprintf_find_string("time"))
 			(void) printf("%llu ", gethrtime());
 		if (dprintf_find_string("long"))
 			(void) printf("%s, line %d: ", newfile, line);
-		(void) printf("%s: ", func);
+		(void) printf("dprintf: %s: ", func);
 		va_start(adx, fmt);
 		(void) vprintf(fmt, adx);
 		va_end(adx);
 		funlockfile(stdout);
+	} else {
+		/* zfs_dbgmsg is logged for dumping later */
+		size_t size;
+		char *buf;
+		int i;
+
+		size = 1024;
+		buf = umem_alloc(size, UMEM_NOFAIL);
+		i = snprintf(buf, size, "%s:%d:%s(): ", newfile, line, func);
+
+		if (i < size) {
+			va_start(adx, fmt);
+			(void) vsnprintf(buf + i, size - i, fmt, adx);
+			va_end(adx);
+		}
+
+		__zfs_dbgmsg(buf);
+
+		umem_free(buf, size);
 	}
 }
 
@@ -815,60 +647,6 @@ cmn_err(int ce, const char *fmt, ...)
 
 /*
  * =========================================================================
- * kobj interfaces
- * =========================================================================
- */
-struct _buf *
-kobj_open_file(char *name)
-{
-	struct _buf *file;
-	vnode_t *vp;
-
-	/* set vp as the _fd field of the file */
-	if (vn_openat(name, UIO_SYSSPACE, FREAD, 0, &vp, 0, 0, rootdir,
-	    -1) != 0)
-		return ((void *)-1UL);
-
-	file = umem_zalloc(sizeof (struct _buf), UMEM_NOFAIL);
-	file->_fd = (intptr_t)vp;
-	return (file);
-}
-
-int
-kobj_read_file(struct _buf *file, char *buf, unsigned size, unsigned off)
-{
-	ssize_t resid = 0;
-
-	if (vn_rdwr(UIO_READ, (vnode_t *)file->_fd, buf, size, (offset_t)off,
-	    UIO_SYSSPACE, 0, 0, 0, &resid) != 0)
-		return (-1);
-
-	return (size - resid);
-}
-
-void
-kobj_close_file(struct _buf *file)
-{
-	vn_close((vnode_t *)file->_fd);
-	umem_free(file, sizeof (struct _buf));
-}
-
-int
-kobj_get_filesize(struct _buf *file, uint64_t *size)
-{
-	struct stat64 st;
-	vnode_t *vp = (vnode_t *)file->_fd;
-
-	if (fstat64(vp->v_fd, &st) == -1) {
-		vn_close(vp);
-		return (errno);
-	}
-	*size = st.st_size;
-	return (0);
-}
-
-/*
- * =========================================================================
  * misc routines
  * =========================================================================
  */
@@ -907,13 +685,15 @@ lowbit64(uint64_t i)
 	return (__builtin_ffsll(i));
 }
 
+const char *random_path = "/dev/random";
+const char *urandom_path = "/dev/urandom";
 static int random_fd = -1, urandom_fd = -1;
 
 void
 random_init(void)
 {
-	VERIFY((random_fd = open("/dev/random", O_RDONLY)) != -1);
-	VERIFY((urandom_fd = open("/dev/urandom", O_RDONLY)) != -1);
+	VERIFY((random_fd = open(random_path, O_RDONLY | O_CLOEXEC)) != -1);
+	VERIFY((urandom_fd = open(urandom_path, O_RDONLY | O_CLOEXEC)) != -1);
 }
 
 void
@@ -1008,11 +788,11 @@ kernel_init(int mode)
 
 	physmem = sysconf(_SC_PHYS_PAGES);
 
-	dprintf("physmem = %llu pages (%.2f GB)\n", physmem,
+	dprintf("physmem = %llu pages (%.2f GB)\n", (u_longlong_t)physmem,
 	    (double)physmem * sysconf(_SC_PAGE_SIZE) / (1ULL << 30));
 
 	(void) snprintf(hw_serial, sizeof (hw_serial), "%ld",
-	    (mode & FWRITE) ? get_system_hostid() : 0);
+	    (mode & SPA_MODE_WRITE) ? get_system_hostid() : 0);
 
 	random_init();
 
@@ -1021,7 +801,9 @@ kernel_init(int mode)
 	system_taskq_init();
 	icp_init();
 
-	spa_init(mode);
+	zstd_init();
+
+	spa_init((spa_mode_t)mode);
 
 	fletcher_4_init();
 
@@ -1033,6 +815,8 @@ kernel_fini(void)
 {
 	fletcher_4_fini();
 	spa_fini();
+
+	zstd_fini();
 
 	icp_fini();
 	system_taskq_fini();
@@ -1094,6 +878,12 @@ secpolicy_zfs(const cred_t *cr)
 	return (0);
 }
 
+int
+secpolicy_zfs_proc(const cred_t *cr, proc_t *proc)
+{
+	return (0);
+}
+
 ksiddomain_t *
 ksid_lookupdomain(const char *dom)
 {
@@ -1138,16 +928,16 @@ kmem_asprintf(const char *fmt, ...)
 }
 
 /* ARGSUSED */
-int
+zfs_file_t *
 zfs_onexit_fd_hold(int fd, minor_t *minorp)
 {
 	*minorp = 0;
-	return (0);
+	return (NULL);
 }
 
 /* ARGSUSED */
 void
-zfs_onexit_fd_rele(int fd)
+zfs_onexit_fd_rele(zfs_file_t *fp)
 {
 }
 
@@ -1155,20 +945,6 @@ zfs_onexit_fd_rele(int fd)
 int
 zfs_onexit_add_cb(minor_t minor, void (*func)(void *), void *data,
     uint64_t *action_handle)
-{
-	return (0);
-}
-
-/* ARGSUSED */
-int
-zfs_onexit_del_cb(minor_t minor, uint64_t action_handle, boolean_t fire)
-{
-	return (0);
-}
-
-/* ARGSUSED */
-int
-zfs_onexit_cb_data(minor_t minor, uint64_t action_handle, void **data)
 {
 	return (0);
 }
@@ -1190,15 +966,21 @@ __spl_pf_fstrans_check(void)
 	return (0);
 }
 
+int
+kmem_cache_reap_active(void)
+{
+	return (0);
+}
+
 void *zvol_tag = "zvol_tag";
 
 void
-zvol_create_minors(spa_t *spa, const char *name, boolean_t async)
+zvol_create_minor(const char *name)
 {
 }
 
 void
-zvol_remove_minor(spa_t *spa, const char *name, boolean_t async)
+zvol_create_minors_recursive(const char *name)
 {
 }
 
@@ -1210,5 +992,386 @@ zvol_remove_minors(spa_t *spa, const char *name, boolean_t async)
 void
 zvol_rename_minors(spa_t *spa, const char *oldname, const char *newname,
     boolean_t async)
+{
+}
+
+/*
+ * Open file
+ *
+ * path - fully qualified path to file
+ * flags - file attributes O_READ / O_WRITE / O_EXCL
+ * fpp - pointer to return file pointer
+ *
+ * Returns 0 on success underlying error on failure.
+ */
+int
+zfs_file_open(const char *path, int flags, int mode, zfs_file_t **fpp)
+{
+	int fd = -1;
+	int dump_fd = -1;
+	int err;
+	int old_umask = 0;
+	zfs_file_t *fp;
+	struct stat64 st;
+
+	if (!(flags & O_CREAT) && stat64(path, &st) == -1)
+		return (errno);
+
+	if (!(flags & O_CREAT) && S_ISBLK(st.st_mode))
+		flags |= O_DIRECT;
+
+	if (flags & O_CREAT)
+		old_umask = umask(0);
+
+	fd = open64(path, flags, mode);
+	if (fd == -1)
+		return (errno);
+
+	if (flags & O_CREAT)
+		(void) umask(old_umask);
+
+	if (vn_dumpdir != NULL) {
+		char *dumppath = umem_zalloc(MAXPATHLEN, UMEM_NOFAIL);
+		const char *inpath = zfs_basename(path);
+
+		(void) snprintf(dumppath, MAXPATHLEN,
+		    "%s/%s", vn_dumpdir, inpath);
+		dump_fd = open64(dumppath, O_CREAT | O_WRONLY, 0666);
+		umem_free(dumppath, MAXPATHLEN);
+		if (dump_fd == -1) {
+			err = errno;
+			close(fd);
+			return (err);
+		}
+	} else {
+		dump_fd = -1;
+	}
+
+	(void) fcntl(fd, F_SETFD, FD_CLOEXEC);
+
+	fp = umem_zalloc(sizeof (zfs_file_t), UMEM_NOFAIL);
+	fp->f_fd = fd;
+	fp->f_dump_fd = dump_fd;
+	*fpp = fp;
+
+	return (0);
+}
+
+void
+zfs_file_close(zfs_file_t *fp)
+{
+	close(fp->f_fd);
+	if (fp->f_dump_fd != -1)
+		close(fp->f_dump_fd);
+
+	umem_free(fp, sizeof (zfs_file_t));
+}
+
+/*
+ * Stateful write - use os internal file pointer to determine where to
+ * write and update on successful completion.
+ *
+ * fp -  pointer to file (pipe, socket, etc) to write to
+ * buf - buffer to write
+ * count - # of bytes to write
+ * resid -  pointer to count of unwritten bytes  (if short write)
+ *
+ * Returns 0 on success errno on failure.
+ */
+int
+zfs_file_write(zfs_file_t *fp, const void *buf, size_t count, ssize_t *resid)
+{
+	ssize_t rc;
+
+	rc = write(fp->f_fd, buf, count);
+	if (rc < 0)
+		return (errno);
+
+	if (resid) {
+		*resid = count - rc;
+	} else if (rc != count) {
+		return (EIO);
+	}
+
+	return (0);
+}
+
+/*
+ * Stateless write - os internal file pointer is not updated.
+ *
+ * fp -  pointer to file (pipe, socket, etc) to write to
+ * buf - buffer to write
+ * count - # of bytes to write
+ * off - file offset to write to (only valid for seekable types)
+ * resid -  pointer to count of unwritten bytes
+ *
+ * Returns 0 on success errno on failure.
+ */
+int
+zfs_file_pwrite(zfs_file_t *fp, const void *buf,
+    size_t count, loff_t pos, ssize_t *resid)
+{
+	ssize_t rc, split, done;
+	int sectors;
+
+	/*
+	 * To simulate partial disk writes, we split writes into two
+	 * system calls so that the process can be killed in between.
+	 * This is used by ztest to simulate realistic failure modes.
+	 */
+	sectors = count >> SPA_MINBLOCKSHIFT;
+	split = (sectors > 0 ? rand() % sectors : 0) << SPA_MINBLOCKSHIFT;
+	rc = pwrite64(fp->f_fd, buf, split, pos);
+	if (rc != -1) {
+		done = rc;
+		rc = pwrite64(fp->f_fd, (char *)buf + split,
+		    count - split, pos + split);
+	}
+#ifdef __linux__
+	if (rc == -1 && errno == EINVAL) {
+		/*
+		 * Under Linux, this most likely means an alignment issue
+		 * (memory or disk) due to O_DIRECT, so we abort() in order
+		 * to catch the offender.
+		 */
+		abort();
+	}
+#endif
+
+	if (rc < 0)
+		return (errno);
+
+	done += rc;
+
+	if (resid) {
+		*resid = count - done;
+	} else if (done != count) {
+		return (EIO);
+	}
+
+	return (0);
+}
+
+/*
+ * Stateful read - use os internal file pointer to determine where to
+ * read and update on successful completion.
+ *
+ * fp -  pointer to file (pipe, socket, etc) to read from
+ * buf - buffer to write
+ * count - # of bytes to read
+ * resid -  pointer to count of unread bytes (if short read)
+ *
+ * Returns 0 on success errno on failure.
+ */
+int
+zfs_file_read(zfs_file_t *fp, void *buf, size_t count, ssize_t *resid)
+{
+	int rc;
+
+	rc = read(fp->f_fd, buf, count);
+	if (rc < 0)
+		return (errno);
+
+	if (resid) {
+		*resid = count - rc;
+	} else if (rc != count) {
+		return (EIO);
+	}
+
+	return (0);
+}
+
+/*
+ * Stateless read - os internal file pointer is not updated.
+ *
+ * fp -  pointer to file (pipe, socket, etc) to read from
+ * buf - buffer to write
+ * count - # of bytes to write
+ * off - file offset to read from (only valid for seekable types)
+ * resid -  pointer to count of unwritten bytes (if short write)
+ *
+ * Returns 0 on success errno on failure.
+ */
+int
+zfs_file_pread(zfs_file_t *fp, void *buf, size_t count, loff_t off,
+    ssize_t *resid)
+{
+	ssize_t rc;
+
+	rc = pread64(fp->f_fd, buf, count, off);
+	if (rc < 0) {
+#ifdef __linux__
+		/*
+		 * Under Linux, this most likely means an alignment issue
+		 * (memory or disk) due to O_DIRECT, so we abort() in order to
+		 * catch the offender.
+		 */
+		if (errno == EINVAL)
+			abort();
+#endif
+		return (errno);
+	}
+
+	if (fp->f_dump_fd != -1) {
+		int status;
+
+		status = pwrite64(fp->f_dump_fd, buf, rc, off);
+		ASSERT(status != -1);
+	}
+
+	if (resid) {
+		*resid = count - rc;
+	} else if (rc != count) {
+		return (EIO);
+	}
+
+	return (0);
+}
+
+/*
+ * lseek - set / get file pointer
+ *
+ * fp -  pointer to file (pipe, socket, etc) to read from
+ * offp - value to seek to, returns current value plus passed offset
+ * whence - see man pages for standard lseek whence values
+ *
+ * Returns 0 on success errno on failure (ESPIPE for non seekable types)
+ */
+int
+zfs_file_seek(zfs_file_t *fp, loff_t *offp, int whence)
+{
+	loff_t rc;
+
+	rc = lseek(fp->f_fd, *offp, whence);
+	if (rc < 0)
+		return (errno);
+
+	*offp = rc;
+
+	return (0);
+}
+
+/*
+ * Get file attributes
+ *
+ * filp - file pointer
+ * zfattr - pointer to file attr structure
+ *
+ * Currently only used for fetching size and file mode
+ *
+ * Returns 0 on success or error code of underlying getattr call on failure.
+ */
+int
+zfs_file_getattr(zfs_file_t *fp, zfs_file_attr_t *zfattr)
+{
+	struct stat64 st;
+
+	if (fstat64_blk(fp->f_fd, &st) == -1)
+		return (errno);
+
+	zfattr->zfa_size = st.st_size;
+	zfattr->zfa_mode = st.st_mode;
+
+	return (0);
+}
+
+/*
+ * Sync file to disk
+ *
+ * filp - file pointer
+ * flags - O_SYNC and or O_DSYNC
+ *
+ * Returns 0 on success or error code of underlying sync call on failure.
+ */
+int
+zfs_file_fsync(zfs_file_t *fp, int flags)
+{
+	int rc;
+
+	rc = fsync(fp->f_fd);
+	if (rc < 0)
+		return (errno);
+
+	return (0);
+}
+
+/*
+ * fallocate - allocate or free space on disk
+ *
+ * fp - file pointer
+ * mode (non-standard options for hole punching etc)
+ * offset - offset to start allocating or freeing from
+ * len - length to free / allocate
+ *
+ * OPTIONAL
+ */
+int
+zfs_file_fallocate(zfs_file_t *fp, int mode, loff_t offset, loff_t len)
+{
+#ifdef __linux__
+	return (fallocate(fp->f_fd, mode, offset, len));
+#else
+	return (EOPNOTSUPP);
+#endif
+}
+
+/*
+ * Request current file pointer offset
+ *
+ * fp - pointer to file
+ *
+ * Returns current file offset.
+ */
+loff_t
+zfs_file_off(zfs_file_t *fp)
+{
+	return (lseek(fp->f_fd, SEEK_CUR, 0));
+}
+
+/*
+ * unlink file
+ *
+ * path - fully qualified file path
+ *
+ * Returns 0 on success.
+ *
+ * OPTIONAL
+ */
+int
+zfs_file_unlink(const char *path)
+{
+	return (remove(path));
+}
+
+/*
+ * Get reference to file pointer
+ *
+ * fd - input file descriptor
+ *
+ * Returns pointer to file struct or NULL.
+ * Unsupported in user space.
+ */
+zfs_file_t *
+zfs_file_get(int fd)
+{
+	abort();
+
+	return (NULL);
+}
+/*
+ * Drop reference to file pointer
+ *
+ * fp - pointer to file struct
+ *
+ * Unsupported in user space.
+ */
+void
+zfs_file_put(zfs_file_t *fp)
+{
+	abort();
+}
+
+void
+zfsvfs_update_fromname(const char *oldname, const char *newname)
 {
 }

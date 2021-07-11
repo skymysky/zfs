@@ -31,7 +31,7 @@
  * and the current log.  All errors seen are logged to the current log.  When a
  * scrub completes, the current log becomes the last log, the last log is thrown
  * out, and the current log is reinitialized.  This way, if an error is somehow
- * corrected, a new scrub will show that that it no longer exists, and will be
+ * corrected, a new scrub will show that it no longer exists, and will be
  * deleted from the log when the scrub completes.
  *
  * The log is stored using a ZAP object whose key is a string form of the
@@ -404,7 +404,7 @@ spa_errlog_sync(spa_t *spa, uint64_t txg)
 	mutex_exit(&spa->spa_errlog_lock);
 }
 
-#if defined(_KERNEL) && defined(HAVE_SPL)
+#if defined(_KERNEL)
 /* error handling */
 EXPORT_SYMBOL(spa_log_error);
 EXPORT_SYMBOL(spa_get_errlog_size);

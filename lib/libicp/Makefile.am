@@ -4,39 +4,26 @@ VPATH = \
 	$(top_srcdir)/module/icp \
 	$(top_srcdir)/lib/libicp
 
-AM_CFLAGS += $(DEBUG_STACKFLAGS) $(FRAME_LARGER_THAN)
-
-DEFAULT_INCLUDES += \
-	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/module/icp/include \
-	-I$(top_srcdir)/lib/libspl/include
+# Includes kernel code, generate warnings for large stack frames
+AM_CFLAGS += $(FRAME_LARGER_THAN)
 
 noinst_LTLIBRARIES = libicp.la
 
-if TARGET_ASM_X86_64
+if TARGET_CPU_X86_64
 ASM_SOURCES_C = asm-x86_64/aes/aeskey.c
 ASM_SOURCES_AS = \
 	asm-x86_64/aes/aes_amd64.S \
-	asm-x86_64/aes/aes_intel.S \
-	asm-x86_64/modes/gcm_intel.S \
+	asm-x86_64/aes/aes_aesni.S \
+	asm-x86_64/modes/gcm_pclmulqdq.S \
+	asm-x86_64/modes/aesni-gcm-x86_64.S \
+	asm-x86_64/modes/ghash-x86_64.S \
 	asm-x86_64/sha1/sha1-x86_64.S \
 	asm-x86_64/sha2/sha256_impl.S \
 	asm-x86_64/sha2/sha512_impl.S
-endif
-
-if TARGET_ASM_I386
+else
 ASM_SOURCES_C =
 ASM_SOURCES_AS =
 endif
-
-if TARGET_ASM_GENERIC
-ASM_SOURCES_C =
-ASM_SOURCES_AS =
-endif
-
-USER_C =
-
-USER_ASM =
 
 KERNEL_C = \
 	spi/kcf_spi.c \
@@ -45,11 +32,16 @@ KERNEL_C = \
 	api/kcf_cipher.c \
 	api/kcf_miscapi.c \
 	api/kcf_mac.c \
+	algs/aes/aes_impl_aesni.c \
+	algs/aes/aes_impl_generic.c \
+	algs/aes/aes_impl_x86-64.c \
 	algs/aes/aes_impl.c \
 	algs/aes/aes_modes.c \
 	algs/edonr/edonr.c \
 	algs/modes/modes.c \
 	algs/modes/cbc.c \
+	algs/modes/gcm_generic.c \
+	algs/modes/gcm_pclmulqdq.c \
 	algs/modes/gcm.c \
 	algs/modes/ctr.c \
 	algs/modes/ccm.c \
@@ -77,9 +69,7 @@ KERNEL_C = \
 KERNEL_ASM = $(ASM_SOURCES_AS)
 
 nodist_libicp_la_SOURCES = \
-	$(USER_C) \
-	$(USER_ASM) \
 	$(KERNEL_C) \
 	$(KERNEL_ASM)
 
-libicp_la_LIBADD = -lrt
+include $(top_srcdir)/config/CppCheck.am

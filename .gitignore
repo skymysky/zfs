@@ -14,6 +14,7 @@
 # Normal rules
 #
 *.[oa]
+*.o.ur-safe
 *.lo
 *.la
 *.mod.c
@@ -21,6 +22,8 @@
 *.swp
 *.gcno
 *.gcda
+*.pyc
+*.pyo
 .deps
 .libs
 .dirstamp
@@ -33,6 +36,7 @@ Makefile.in
 # Top level generated files specific to this top level dir
 #
 /bin
+/build
 /configure
 /config.log
 /config.status
@@ -57,3 +61,10 @@ cscope.*
 *.tar.gz
 *.patch
 *.orig
+*.log
+*.tmp
+venv
+
+*.so
+*.so.debug
+*.so.full

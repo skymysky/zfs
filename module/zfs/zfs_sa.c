@@ -27,6 +27,8 @@
 #include <sys/sa.h>
 #include <sys/zfs_acl.h>
 #include <sys/zfs_sa.h>
+#include <sys/dmu_objset.h>
+#include <sys/sa_impl.h>
 
 /*
  * ZPL attribute registration table.
@@ -63,12 +65,13 @@ sa_attr_reg_t zfs_attr_table[ZPL_END+1] = {
 	{"ZPL_SCANSTAMP", 32, SA_UINT8_ARRAY, 0},
 	{"ZPL_DACL_ACES", 0, SA_ACL, 0},
 	{"ZPL_DXATTR", 0, SA_UINT8_ARRAY, 0},
+	{"ZPL_PROJID", sizeof (uint64_t), SA_UINT64_ARRAY, 0},
 	{NULL, 0, 0, 0}
 };
 
 #ifdef _KERNEL
 int
-zfs_sa_readlink(znode_t *zp, uio_t *uio)
+zfs_sa_readlink(znode_t *zp, zfs_uio_t *uio)
 {
 	dmu_buf_t *db = sa_get_db(zp->z_sa_hdl);
 	size_t bufsz;
@@ -76,15 +79,16 @@ zfs_sa_readlink(znode_t *zp, uio_t *uio)
 
 	bufsz = zp->z_size;
 	if (bufsz + ZFS_OLD_ZNODE_PHYS_SIZE <= db->db_size) {
-		error = uiomove((caddr_t)db->db_data +
+		error = zfs_uiomove((caddr_t)db->db_data +
 		    ZFS_OLD_ZNODE_PHYS_SIZE,
-		    MIN((size_t)bufsz, uio->uio_resid), UIO_READ, uio);
+		    MIN((size_t)bufsz, zfs_uio_resid(uio)), UIO_READ, uio);
 	} else {
 		dmu_buf_t *dbp;
 		if ((error = dmu_buf_hold(ZTOZSB(zp)->z_os, zp->z_id,
 		    0, FTAG, &dbp, DMU_READ_NO_PREFETCH)) == 0) {
-			error = uiomove(dbp->db_data,
-			    MIN((size_t)bufsz, uio->uio_resid), UIO_READ, uio);
+			error = zfs_uiomove(dbp->db_data,
+			    MIN((size_t)bufsz, zfs_uio_resid(uio)), UIO_READ,
+			    uio);
 			dmu_buf_rele(dbp, FTAG);
 		}
 	}
@@ -297,7 +301,7 @@ zfs_sa_upgrade(sa_handle_t *hdl, dmu_tx_t *tx)
 	 * and ready the ACL would require special "locked"
 	 * interfaces that would be messy
 	 */
-	if (zp->z_acl_cached == NULL || S_ISLNK(ZTOI(zp)->i_mode))
+	if (zp->z_acl_cached == NULL || Z_ISLNK(ZTOTYPE(zp)))
 		return;
 
 	/*
@@ -317,7 +321,7 @@ zfs_sa_upgrade(sa_handle_t *hdl, dmu_tx_t *tx)
 	}
 
 	/* First do a bulk query of the attributes that aren't cached */
-	bulk = kmem_alloc(sizeof (sa_bulk_attr_t) * 20, KM_SLEEP);
+	bulk = kmem_alloc(sizeof (sa_bulk_attr_t) * ZPL_END, KM_SLEEP);
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_ATIME(zfsvfs), NULL, &atime, 16);
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_MTIME(zfsvfs), NULL, &mtime, 16);
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_CTIME(zfsvfs), NULL, &ctime, 16);
@@ -332,9 +336,13 @@ zfs_sa_upgrade(sa_handle_t *hdl, dmu_tx_t *tx)
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_ZNODE_ACL(zfsvfs), NULL,
 	    &znode_acl, 88);
 
-	if (sa_bulk_lookup_locked(hdl, bulk, count) != 0) {
-		kmem_free(bulk, sizeof (sa_bulk_attr_t) * 20);
+	if (sa_bulk_lookup_locked(hdl, bulk, count) != 0)
 		goto done;
+
+	if (dmu_objset_projectquota_enabled(hdl->sa_os) &&
+	    !(zp->z_pflags & ZFS_PROJID)) {
+		zp->z_pflags |= ZFS_PROJID;
+		zp->z_projid = ZFS_DEFAULT_PROJID;
 	}
 
 	/*
@@ -342,7 +350,7 @@ zfs_sa_upgrade(sa_handle_t *hdl, dmu_tx_t *tx)
 	 * it is such a way to pick up an already existing layout number
 	 */
 	count = 0;
-	sa_attrs = kmem_zalloc(sizeof (sa_bulk_attr_t) * 20, KM_SLEEP);
+	sa_attrs = kmem_zalloc(sizeof (sa_bulk_attr_t) * ZPL_END, KM_SLEEP);
 	SA_ADD_BULK_ATTR(sa_attrs, count, SA_ZPL_MODE(zfsvfs), NULL, &mode, 8);
 	SA_ADD_BULK_ATTR(sa_attrs, count, SA_ZPL_SIZE(zfsvfs), NULL,
 	    &zp->z_size, 8);
@@ -362,10 +370,13 @@ zfs_sa_upgrade(sa_handle_t *hdl, dmu_tx_t *tx)
 	    &ctime, 16);
 	SA_ADD_BULK_ATTR(sa_attrs, count, SA_ZPL_CRTIME(zfsvfs), NULL,
 	    &crtime, 16);
-	links = ZTOI(zp)->i_nlink;
+	links = ZTONLNK(zp);
 	SA_ADD_BULK_ATTR(sa_attrs, count, SA_ZPL_LINKS(zfsvfs), NULL,
 	    &links, 8);
-	if (S_ISBLK(ZTOI(zp)->i_mode) || S_ISCHR(ZTOI(zp)->i_mode))
+	if (dmu_objset_projectquota_enabled(hdl->sa_os))
+		SA_ADD_BULK_ATTR(sa_attrs, count, SA_ZPL_PROJID(zfsvfs), NULL,
+		    &zp->z_projid, 8);
+	if (Z_ISBLK(ZTOTYPE(zp)) || Z_ISCHR(ZTOTYPE(zp)))
 		SA_ADD_BULK_ATTR(sa_attrs, count, SA_ZPL_RDEV(zfsvfs), NULL,
 		    &rdev, 8);
 	SA_ADD_BULK_ATTR(sa_attrs, count, SA_ZPL_DACL_COUNT(zfsvfs), NULL,
@@ -400,9 +411,9 @@ zfs_sa_upgrade(sa_handle_t *hdl, dmu_tx_t *tx)
 		    znode_acl.z_acl_extern_obj, tx));
 
 	zp->z_is_sa = B_TRUE;
-	kmem_free(sa_attrs, sizeof (sa_bulk_attr_t) * 20);
-	kmem_free(bulk, sizeof (sa_bulk_attr_t) * 20);
+	kmem_free(sa_attrs, sizeof (sa_bulk_attr_t) * ZPL_END);
 done:
+	kmem_free(bulk, sizeof (sa_bulk_attr_t) * ZPL_END);
 	if (drop_lock)
 		mutex_exit(&zp->z_lock);
 }

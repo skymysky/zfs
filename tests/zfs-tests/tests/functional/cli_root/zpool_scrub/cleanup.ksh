@@ -30,5 +30,5 @@
 
 verify_runnable "global"
 
-log_must set_tunable64 zfs_scan_vdev_limit $ZFS_SCAN_VDEV_LIMIT_DEFAULT
+log_must set_tunable32 SCAN_SUSPEND_PROGRESS 0
 destroy_mirrors

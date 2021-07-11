@@ -50,7 +50,7 @@ function create_random # <fspath> <count>
 
 	while (( i < count )); do
 		log_must touch "$fspath/file$i"
-		sleep $(random 3)
+		sleep $(random_int_between 1 3)
 		(( i = i + 1 ))
 	done
 }
@@ -75,7 +75,7 @@ log_must zfs snapshot "$TESTSNAP2"
 # 3. Verify 'zfs diff -t' correctly display timestamps
 typeset -i count=0
 log_must eval "zfs diff -t $TESTSNAP1 $TESTSNAP2 > $FILEDIFF"
-awk '{print substr($1,0,index($1,".")-1)" "$NF}' < "$FILEDIFF" | while read line
+awk '{print substr($1,1,index($1,".")-1)" "$NF}' < "$FILEDIFF" | while read line
 do
 	read ctime file <<< "$line"
 
@@ -84,7 +84,11 @@ do
 		continue;
 	fi
 
-	filetime="$(stat -c '%Z' $file)"
+	if is_freebsd; then
+		filetime="$(stat -f "%c" $file)"
+	else
+		filetime="$(stat -c '%Z' $file)"
+	fi
 	if [[ "$filetime" != "$ctime" ]]; then
 		log_fail "Unexpected ctime for file $file ($filetime != $ctime)"
 	else

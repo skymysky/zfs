@@ -74,16 +74,16 @@ inc_snap=$TESTPOOL/$TESTFS@incsnap
 rst_root=$TESTPOOL/rst_ctr
 rst_init_snap=$rst_root/$TESTFS@init_snap
 rst_inc_snap=$rst_root/$TESTFS@inc_snap
-full_bkup=/var/tmp/full_bkup.$$
-inc_bkup=/var/tmp/inc_bkup.$$
+full_bkup=$TEST_BASE_DIR/full_bkup.$$
+inc_bkup=$TEST_BASE_DIR/inc_bkup.$$
 
 log_must zfs create $rst_root
 log_must zfs snapshot $init_snap
 log_must eval "zfs send $init_snap > $full_bkup"
 
 log_note "'zfs receive' fails with invalid send streams."
-log_mustnot eval "zfs receive $rst_init_snap < /dev/zero"
-log_mustnot eval "zfs receive -d $rst_root </dev/zero"
+log_mustnot eval "cat </dev/zero | zfs receive $rst_init_snap"
+log_mustnot eval "cat </dev/zero | zfs receive -d $rst_root"
 
 log_must eval "zfs receive $rst_init_snap < $full_bkup"
 

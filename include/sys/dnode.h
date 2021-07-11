@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2018 by Delphix. All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  */
 
@@ -32,7 +32,7 @@
 #include <sys/spa.h>
 #include <sys/txg.h>
 #include <sys/zio.h>
-#include <sys/refcount.h>
+#include <sys/zfs_refcount.h>
 #include <sys/dmu_zfetch.h>
 #include <sys/zrlock.h>
 #include <sys/multilist.h>
@@ -46,6 +46,7 @@ extern "C" {
  */
 #define	DNODE_MUST_BE_ALLOCATED	1
 #define	DNODE_MUST_BE_FREE	2
+#define	DNODE_DRY_RUN		4
 
 /*
  * dnode_next_offset() flags.
@@ -147,9 +148,15 @@ enum dnode_dirtycontext {
 /* Does dnode have a SA spill blkptr in bonus? */
 #define	DNODE_FLAG_SPILL_BLKPTR			(1 << 2)
 
-/* User/Group dnode accounting */
+/* User/Group/Project dnode accounting */
 #define	DNODE_FLAG_USEROBJUSED_ACCOUNTED	(1 << 3)
 
+/*
+ * This mask defines the set of flags which are "portable", meaning
+ * that they can be preserved when doing a raw encrypted zfs send.
+ * Flags included in this mask will be protected by AAD when the block
+ * of dnodes is encrypted.
+ */
 #define	DNODE_CRYPT_PORTABLE_FLAGS_MASK		(DNODE_FLAG_SPILL_BLKPTR)
 
 /*
@@ -164,7 +171,7 @@ enum dnode_dirtycontext {
  * example, reading 32 dnodes from a 16k dnode block and all of the spill
  * blocks could issue 33 separate reads. Now suppose those dnodes have size
  * 1024 and therefore don't need spill blocks. Then the worst case number
- * of blocks read is reduced to from 33 to two--one per dnode block.
+ * of blocks read is reduced from 33 to two--one per dnode block.
  *
  * ZFS-on-Linux systems that make heavy use of extended attributes benefit
  * from this feature. In particular, ZFS-on-Linux supports the xattr=sa
@@ -221,6 +228,13 @@ typedef struct dnode_phys {
 	uint64_t dn_maxblkid;		/* largest allocated block ID */
 	uint64_t dn_used;		/* bytes (or sectors) of disk space */
 
+	/*
+	 * Both dn_pad2 and dn_pad3 are protected by the block's MAC. This
+	 * allows us to protect any fields that might be added here in the
+	 * future. In either case, developers will want to check
+	 * zio_crypt_init_uios_dnode() and zio_crypt_do_dnode_hmac_updates()
+	 * to ensure the new field is being protected and updated properly.
+	 */
 	uint64_t dn_pad3[4];
 
 	/*
@@ -254,8 +268,8 @@ typedef struct dnode_phys {
 	};
 } dnode_phys_t;
 
-#define	DN_SPILL_BLKPTR(dnp)	(blkptr_t *)((char *)(dnp) + \
-	(((dnp)->dn_extra_slots + 1) << DNODE_SHIFT) - (1 << SPA_BLKPTRSHIFT))
+#define	DN_SPILL_BLKPTR(dnp)	((blkptr_t *)((char *)(dnp) + \
+	(((dnp)->dn_extra_slots + 1) << DNODE_SHIFT) - (1 << SPA_BLKPTRSHIFT)))
 
 struct dnode {
 	/*
@@ -301,6 +315,7 @@ struct dnode {
 	uint8_t dn_rm_spillblk[TXG_SIZE];	/* for removing spill blk */
 	uint16_t dn_next_bonuslen[TXG_SIZE];
 	uint32_t dn_next_blksz[TXG_SIZE];	/* next block size in bytes */
+	uint64_t dn_next_maxblkid[TXG_SIZE];	/* next maxblkid in bytes */
 
 	/* protected by dn_dbufs_mtx; declared here to fill 32-bit hole */
 	uint32_t dn_dbufs_count;	/* count of dn_dbufs */
@@ -315,13 +330,15 @@ struct dnode {
 	uint64_t dn_allocated_txg;
 	uint64_t dn_free_txg;
 	uint64_t dn_assigned_txg;
+	uint64_t dn_dirty_txg;			/* txg dnode was last dirtied */
 	kcondvar_t dn_notxholds;
+	kcondvar_t dn_nodnholds;
 	enum dnode_dirtycontext dn_dirtyctx;
-	uint8_t *dn_dirtyctx_firstset;		/* dbg: contents meaningless */
+	void *dn_dirtyctx_firstset;		/* dbg: contents meaningless */
 
 	/* protected by own devices */
-	refcount_t dn_tx_holds;
-	refcount_t dn_holds;
+	zfs_refcount_t dn_tx_holds;
+	zfs_refcount_t dn_holds;
 
 	kmutex_t dn_dbufs_mtx;
 	/*
@@ -348,13 +365,26 @@ struct dnode {
 	/* used in syncing context */
 	uint64_t dn_oldused;	/* old phys used bytes */
 	uint64_t dn_oldflags;	/* old phys dn_flags */
-	uint64_t dn_olduid, dn_oldgid;
-	uint64_t dn_newuid, dn_newgid;
+	uint64_t dn_olduid, dn_oldgid, dn_oldprojid;
+	uint64_t dn_newuid, dn_newgid, dn_newprojid;
 	int dn_id_flags;
 
 	/* holds prefetch structure */
 	struct zfetch	dn_zfetch;
 };
+
+/*
+ * Since AVL already has embedded element counter, use dn_dbufs_count
+ * only for dbufs not counted there (bonus buffers) and just add them.
+ */
+#define	DN_DBUFS_COUNT(dn)	((dn)->dn_dbufs_count + \
+    avl_numnodes(&(dn)->dn_dbufs))
+
+/*
+ * We use this (otherwise unused) bit to indicate if the value of
+ * dn_next_maxblkid[txgoff] is valid to use in dnode_sync().
+ */
+#define	DMU_NEXT_MAXBLKID_SET		(1ULL << 63)
 
 /*
  * Adds a level of indirection between the dbuf and the dnode to avoid
@@ -393,13 +423,16 @@ int dnode_hold_impl(struct objset *dd, uint64_t object, int flag, int dn_slots,
     void *ref, dnode_t **dnp);
 boolean_t dnode_add_ref(dnode_t *dn, void *ref);
 void dnode_rele(dnode_t *dn, void *ref);
-void dnode_rele_and_unlock(dnode_t *dn, void *tag);
+void dnode_rele_and_unlock(dnode_t *dn, void *tag, boolean_t evicting);
+int dnode_try_claim(objset_t *os, uint64_t object, int slots);
 void dnode_setdirty(dnode_t *dn, dmu_tx_t *tx);
+void dnode_set_dirtyctx(dnode_t *dn, dmu_tx_t *tx, void *tag);
 void dnode_sync(dnode_t *dn, dmu_tx_t *tx);
 void dnode_allocate(dnode_t *dn, dmu_object_type_t ot, int blocksize, int ibs,
     dmu_object_type_t bonustype, int bonuslen, int dn_slots, dmu_tx_t *tx);
 void dnode_reallocate(dnode_t *dn, dmu_object_type_t ot, int blocksize,
-    dmu_object_type_t bonustype, int bonuslen, int dn_slots, dmu_tx_t *tx);
+    dmu_object_type_t bonustype, int bonuslen, int dn_slots,
+    boolean_t keep_spill, dmu_tx_t *tx);
 void dnode_free(dnode_t *dn, dmu_tx_t *tx);
 void dnode_byteswap(dnode_phys_t *dnp);
 void dnode_buf_byteswap(void *buf, size_t size);
@@ -408,7 +441,8 @@ int dnode_set_nlevels(dnode_t *dn, int nlevels, dmu_tx_t *tx);
 int dnode_set_blksz(dnode_t *dn, uint64_t size, int ibs, dmu_tx_t *tx);
 void dnode_free_range(dnode_t *dn, uint64_t off, uint64_t len, dmu_tx_t *tx);
 void dnode_diduse_space(dnode_t *dn, int64_t space);
-void dnode_new_blkid(dnode_t *dn, uint64_t blkid, dmu_tx_t *tx, boolean_t);
+void dnode_new_blkid(dnode_t *dn, uint64_t blkid, dmu_tx_t *tx,
+    boolean_t have_read, boolean_t force);
 uint64_t dnode_block_freed(dnode_t *dn, uint64_t blkid);
 void dnode_init(void);
 void dnode_fini(void);
@@ -416,6 +450,10 @@ int dnode_next_offset(dnode_t *dn, int flags, uint64_t *off,
     int minlvl, uint64_t blkfill, uint64_t txg);
 void dnode_evict_dbufs(dnode_t *dn);
 void dnode_evict_bonus(dnode_t *dn);
+void dnode_free_interior_slots(dnode_t *dn);
+
+#define	DNODE_IS_DIRTY(_dn)						\
+	((_dn)->dn_dirty_txg >= spa_syncing_txg((_dn)->dn_objset->os_spa))
 
 #define	DNODE_IS_CACHEABLE(_dn)						\
 	((_dn)->dn_objset->os_primary_cache == ZFS_CACHE_ALL ||		\
@@ -505,10 +543,10 @@ typedef struct dnode_stats {
 	 */
 	kstat_named_t dnode_hold_free_overflow;
 	/*
-	 * Number of times a dnode_hold(...) was attempted on a dnode
-	 * which had already been unlinked in an earlier txg.
+	 * Number of times dnode_free_interior_slots() needed to retry
+	 * acquiring a slot zrl lock due to contention.
 	 */
-	kstat_named_t dnode_hold_free_txg;
+	kstat_named_t dnode_free_interior_lock_retry;
 	/*
 	 * Number of new dnodes allocated by dnode_allocate().
 	 */
@@ -557,17 +595,12 @@ extern dnode_stats_t dnode_stats;
 
 #ifdef ZFS_DEBUG
 
-/*
- * There should be a ## between the string literal and fmt, to make it
- * clear that we're joining two strings together, but that piece of shit
- * gcc doesn't support that preprocessor token.
- */
 #define	dprintf_dnode(dn, fmt, ...) do { \
 	if (zfs_flags & ZFS_DEBUG_DPRINTF) { \
 	char __db_buf[32]; \
 	uint64_t __db_obj = (dn)->dn_object; \
 	if (__db_obj == DMU_META_DNODE_OBJECT) \
-		(void) strcpy(__db_buf, "mdn"); \
+		(void) strlcpy(__db_buf, "mdn", sizeof (__db_buf));	\
 	else \
 		(void) snprintf(__db_buf, sizeof (__db_buf), "%lld", \
 		    (u_longlong_t)__db_obj);\

@@ -33,8 +33,8 @@
 src_fs=$TESTPOOL/drecvsrc
 temppool=recvtank
 dst_fs=$temppool/drecvdest
-streamfile=/var/tmp/drecvstream.$$
-tpoolfile=/temptank.$$
+streamfile=$TEST_BASE_DIR/drecvstream.$$
+tpoolfile=$TEST_BASE_DIR/temptank.$$
 
 function cleanup
 {
@@ -67,6 +67,8 @@ zfs snapshot $src_fs@snap3
 
 log_must eval "zfs send -D -R $src_fs@snap3 > $streamfile"
 log_must eval "zfs receive -v $dst_fs < $streamfile"
+log_must zfs destroy -r $dst_fs
+log_must eval "zstream redup $streamfile | zfs receive -v $dst_fs"
 
 cleanup
 

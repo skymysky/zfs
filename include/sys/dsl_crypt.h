@@ -39,7 +39,7 @@
 #define	DSL_CRYPTO_KEY_HMAC_KEY		"DSL_CRYPTO_HMAC_KEY_1"
 #define	DSL_CRYPTO_KEY_ROOT_DDOBJ	"DSL_CRYPTO_ROOT_DDOBJ"
 #define	DSL_CRYPTO_KEY_REFCOUNT		"DSL_CRYPTO_REFCOUNT"
-
+#define	DSL_CRYPTO_KEY_VERSION		"DSL_CRYPTO_VERSION"
 
 /*
  * In-memory representation of a wrapping key. One of these structs will exist
@@ -62,7 +62,7 @@ typedef struct dsl_wrapping_key {
 	crypto_key_t wk_key;
 
 	/* refcount of number of dsl_crypto_key_t's holding this struct */
-	refcount_t wk_refcnt;
+	zfs_refcount_t wk_refcnt;
 
 	/* dsl directory object that owns this wrapping key */
 	uint64_t wk_ddobj;
@@ -111,8 +111,8 @@ typedef struct dsl_crypto_key {
 	/* link on spa_keystore_t:sk_dsl_keys */
 	avl_node_t dck_avl_link;
 
-	/* refcount of dsl_key_mapping_t's holding this key */
-	refcount_t dck_holds;
+	/* refcount of holders of this key */
+	zfs_refcount_t dck_holds;
 
 	/* master key used to derive encryption keys */
 	zio_crypt_key_t dck_key;
@@ -134,7 +134,7 @@ typedef struct dsl_key_mapping {
 	avl_node_t km_avl_link;
 
 	/* refcount of how many users are depending on this mapping */
-	refcount_t km_refcnt;
+	zfs_refcount_t km_refcnt;
 
 	/* dataset this crypto key belongs to (index) */
 	uint64_t km_dsobj;
@@ -169,6 +169,7 @@ int dsl_crypto_params_create_nvlist(dcp_cmd_t cmd, nvlist_t *props,
 void dsl_crypto_params_free(dsl_crypto_params_t *dcp, boolean_t unload);
 void dsl_dataset_crypt_stats(struct dsl_dataset *ds, nvlist_t *nv);
 int dsl_crypto_can_set_keylocation(const char *dsname, const char *keylocation);
+boolean_t dsl_dir_incompatible_encryption_version(dsl_dir_t *dd);
 
 void spa_keystore_init(spa_keystore_t *sk);
 void spa_keystore_fini(spa_keystore_t *sk);
@@ -180,16 +181,22 @@ int spa_keystore_load_wkey(const char *dsname, dsl_crypto_params_t *dcp,
 int spa_keystore_unload_wkey_impl(spa_t *spa, uint64_t ddobj);
 int spa_keystore_unload_wkey(const char *dsname);
 
-int spa_keystore_create_mapping_impl(spa_t *spa, uint64_t dsobj, dsl_dir_t *dd,
-    void *tag);
-int spa_keystore_create_mapping(spa_t *spa, struct dsl_dataset *ds, void *tag);
+int spa_keystore_create_mapping(spa_t *spa, struct dsl_dataset *ds, void *tag,
+    dsl_key_mapping_t **km_out);
 int spa_keystore_remove_mapping(spa_t *spa, uint64_t dsobj, void *tag);
+void key_mapping_add_ref(dsl_key_mapping_t *km, void *tag);
+void key_mapping_rele(spa_t *spa, dsl_key_mapping_t *km, void *tag);
 int spa_keystore_lookup_key(spa_t *spa, uint64_t dsobj, void *tag,
     dsl_crypto_key_t **dck_out);
 
-int dsl_crypto_populate_key_nvlist(struct dsl_dataset *ds, nvlist_t **nvl_out);
-int dsl_crypto_recv_key(const char *poolname, uint64_t dsobj,
-    dmu_objset_type_t ostype, nvlist_t *nvl);
+int dsl_crypto_populate_key_nvlist(struct objset *os,
+    uint64_t from_ivset_guid, nvlist_t **nvl_out);
+int dsl_crypto_recv_raw_key_check(struct dsl_dataset *ds,
+    nvlist_t *nvl, dmu_tx_t *tx);
+void dsl_crypto_recv_raw_key_sync(struct dsl_dataset *ds,
+    nvlist_t *nvl, dmu_tx_t *tx);
+int dsl_crypto_recv_raw(const char *poolname, uint64_t dsobj, uint64_t fromobj,
+    dmu_objset_type_t ostype, nvlist_t *nvl, boolean_t do_key);
 
 int spa_keystore_change_key(const char *dsname, dsl_crypto_params_t *dcp);
 int dsl_dir_rename_crypt_check(dsl_dir_t *dd, dsl_dir_t *newparent);
@@ -197,12 +204,11 @@ int dsl_dataset_promote_crypt_check(dsl_dir_t *target, dsl_dir_t *origin);
 void dsl_dataset_promote_crypt_sync(dsl_dir_t *target, dsl_dir_t *origin,
     dmu_tx_t *tx);
 int dmu_objset_create_crypt_check(dsl_dir_t *parentdd,
-    dsl_crypto_params_t *dcp);
+    dsl_crypto_params_t *dcp, boolean_t *will_encrypt);
 void dsl_dataset_create_crypt_sync(uint64_t dsobj, dsl_dir_t *dd,
     struct dsl_dataset *origin, dsl_crypto_params_t *dcp, dmu_tx_t *tx);
 uint64_t dsl_crypto_key_create_sync(uint64_t crypt, dsl_wrapping_key_t *wkey,
     dmu_tx_t *tx);
-int dmu_objset_clone_crypt_check(dsl_dir_t *parentdd, dsl_dir_t *origindd);
 uint64_t dsl_crypto_key_clone_sync(dsl_dir_t *origindd, dmu_tx_t *tx);
 void dsl_crypto_key_destroy_sync(uint64_t dckobj, dmu_tx_t *tx);
 
@@ -211,8 +217,9 @@ int spa_do_crypt_mac_abd(boolean_t generate, spa_t *spa, uint64_t dsobj,
     abd_t *abd, uint_t datalen, uint8_t *mac);
 int spa_do_crypt_objset_mac_abd(boolean_t generate, spa_t *spa, uint64_t dsobj,
     abd_t *abd, uint_t datalen, boolean_t byteswap);
-int spa_do_crypt_abd(boolean_t encrypt, spa_t *spa, uint64_t dsobj,
-    const blkptr_t *bp, uint64_t txgid, uint_t datalen, abd_t *pabd,
-    abd_t *cabd, uint8_t *iv, uint8_t *mac, uint8_t *salt, boolean_t *no_crypt);
+int spa_do_crypt_abd(boolean_t encrypt, spa_t *spa, const zbookmark_phys_t *zb,
+    dmu_object_type_t ot, boolean_t dedup, boolean_t bswap, uint8_t *salt,
+    uint8_t *iv, uint8_t *mac, uint_t datalen, abd_t *pabd, abd_t *cabd,
+    boolean_t *no_crypt);
 
 #endif

@@ -1,11 +1,10 @@
 include $(top_srcdir)/config/Rules.am
 
-AM_CFLAGS += $(DEBUG_STACKFLAGS) $(FRAME_LARGER_THAN)
-AM_CPPFLAGS += -DDEBUG
+# Includes kernel code, generate warnings for large stack frames
+AM_CFLAGS += $(FRAME_LARGER_THAN)
 
-DEFAULT_INCLUDES += \
-	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/lib/libspl/include
+# Unconditionally enable ASSERTs
+AM_CPPFLAGS += -DDEBUG -UNDEBUG -DZFS_DEBUG
 
 bin_PROGRAMS = raidz_test
 
@@ -15,6 +14,9 @@ raidz_test_SOURCES = \
 	raidz_bench.c
 
 raidz_test_LDADD = \
-	$(top_builddir)/lib/libzpool/libzpool.la
+	$(abs_top_builddir)/lib/libzpool/libzpool.la \
+	$(abs_top_builddir)/lib/libzfs_core/libzfs_core.la
 
-raidz_test_LDADD += -lm -ldl
+raidz_test_LDADD += -lm
+
+include $(top_srcdir)/config/CppCheck.am

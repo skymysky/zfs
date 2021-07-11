@@ -1,4 +1,5 @@
 %bcond_with     debug
+%bcond_with     debuginfo
 
 Name:           @PACKAGE@-kmod
 Version:        @VERSION@
@@ -7,18 +8,18 @@ Release:        @RELEASE@%{?dist}
 Summary:        Kernel module(s)
 Group:          System Environment/Kernel
 License:        @ZFS_META_LICENSE@
-URL:            http://zfsonlinux.org/
+URL:            https://github.com/openzfs/zfs
 BuildRequires:  %kernel_module_package_buildreqs
-BuildRequires:  kmod-spl-devel = %{version}
 Source0:        @PACKAGE@-%{version}.tar.gz
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 # Additional dependency information for the kmod sub-package must be specified
 # by generating a preamble text file which kmodtool can append to the spec file.
 %(/bin/echo -e "\
-Requires:       spl-kmod\n\
 Requires:       @PACKAGE@ = %{version}\n\
-Conflicts:      @PACKAGE@-dkms\n\n" > %{_sourcedir}/kmod-preamble)
+Conflicts:      @PACKAGE@-dkms\n\
+Obsoletes:      kmod-spl\n\
+Obsoletes:      spl-kmod\n\n" > %{_sourcedir}/kmod-preamble)
 
 # LDFLAGS are not sanitized by arch/*/Makefile for these architectures.
 %ifarch ppc ppc64 ppc64le aarch64
@@ -34,17 +35,14 @@ This package contains the ZFS kernel modules.
 
 %define ksrc %{_usrsrc}/kernels/%{kverrel}
 %define kobj %{ksrc}
-%define splsrc %{_usrsrc}/spl-%{version}
-%define splobj %{splsrc}/%{kverrel}
 
 %package -n kmod-%{kmod_name}-devel
 Summary:        ZFS kernel module(s) devel common
 Group:          System Environment/Kernel
-Requires:       kmod-spl-devel = %{version}
+Provides:       kmod-spl-devel = %{version}
 
 %description -n  kmod-%{kmod_name}-devel
-This package provides the header files and objects to build kernel modules
-which depend on the spl kernel module.
+This package provides the header files and objects to build kernel modules.
 
 %prep
 if ! [ -d "%{ksrc}"  ]; then
@@ -58,15 +56,20 @@ fi
 %define debug --disable-debug
 %endif
 
+%if %{with debuginfo}
+%define debuginfo --enable-debuginfo
+%else
+%define debuginfo --disable-debuginfo
+%endif
+
 %setup -n %{kmod_name}-%{version}
 %build
 %configure \
         --with-config=kernel \
         --with-linux=%{ksrc} \
         --with-linux-obj=%{kobj} \
-        --with-spl="%{splsrc}" \
-        --with-spl-obj="%{splobj}" \
-        %{debug}
+        %{debug} \
+        %{debuginfo}
 make %{?_smp_mflags}
 
 %install
@@ -83,3 +86,4 @@ rm -rf $RPM_BUILD_ROOT
 
 %files -n kmod-%{kmod_name}-devel
 %{_usrsrc}/%{kmod_name}-%{version}
+%{_usrsrc}/spl-%{version}

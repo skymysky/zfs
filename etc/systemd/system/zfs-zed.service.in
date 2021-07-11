@@ -1,7 +1,7 @@
 [Unit]
 Description=ZFS Event Daemon (zed)
 Documentation=man:zed(8)
-After=zfs-import.target
+ConditionPathIsDirectory=/sys/module/zfs
 
 [Service]
 ExecStart=@sbindir@/zed -F

@@ -21,6 +21,7 @@
 #include <libnvpair.h>
 #include <libudev.h>
 #include <libzfs.h>
+#include <libzutil.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,7 +38,7 @@
  * A libudev monitor is established to monitor block device actions and pass
  * them on to internal ZED logic modules.  Initially, zfs_mod.c is the only
  * consumer and is the Linux equivalent for the illumos syseventd ZFS SLM
- * module responsible for handeling disk events for ZFS.
+ * module responsible for handling disk events for ZFS.
  */
 
 pthread_t g_mon_tid;
@@ -71,6 +72,8 @@ zed_udev_event(const char *class, const char *subclass, nvlist_t *nvl)
 		zed_log_msg(LOG_INFO, "\t%s: %s", DEV_PATH, strval);
 	if (nvlist_lookup_string(nvl, DEV_IDENTIFIER, &strval) == 0)
 		zed_log_msg(LOG_INFO, "\t%s: %s", DEV_IDENTIFIER, strval);
+	if (nvlist_lookup_boolean(nvl, DEV_IS_PART) == B_TRUE)
+		zed_log_msg(LOG_INFO, "\t%s: B_TRUE", DEV_IS_PART);
 	if (nvlist_lookup_string(nvl, DEV_PHYS_PATH, &strval) == 0)
 		zed_log_msg(LOG_INFO, "\t%s: %s", DEV_PHYS_PATH, strval);
 	if (nvlist_lookup_uint64(nvl, DEV_SIZE, &numval) == 0)
@@ -378,6 +381,7 @@ zed_disk_event_init()
 		return (-1);
 	}
 
+	pthread_setname_np(g_mon_tid, "udev monitor");
 	zed_log_msg(LOG_INFO, "zed_disk_event_init");
 
 	return (0);

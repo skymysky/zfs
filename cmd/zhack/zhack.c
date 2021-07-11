@@ -48,12 +48,10 @@
 #include <sys/zio_compress.h>
 #include <sys/zfeature.h>
 #include <sys/dmu_tx.h>
-#include <libzfs.h>
-
-extern boolean_t zfeature_checks_disable;
+#include <zfeature_common.h>
+#include <libzutil.h>
 
 const char cmdname[] = "zhack";
-libzfs_handle_t *g_zfs;
 static importargs_t g_importargs;
 static char *g_pool;
 static boolean_t g_readonly;
@@ -104,8 +102,8 @@ fatal(spa_t *spa, void *tag, const char *fmt, ...)
 
 /* ARGSUSED */
 static int
-space_delta_cb(dmu_object_type_t bonustype, void *data,
-    uint64_t *userp, uint64_t *groupp)
+space_delta_cb(dmu_object_type_t bonustype, const void *data,
+    zfs_file_info_t *zoi)
 {
 	/*
 	 * Is it a valid type of object to track?
@@ -127,21 +125,19 @@ zhack_import(char *target, boolean_t readonly)
 	nvlist_t *props;
 	int error;
 
-	kernel_init(readonly ? FREAD : (FREAD | FWRITE));
-	g_zfs = libzfs_init();
-	ASSERT(g_zfs != NULL);
+	kernel_init(readonly ? SPA_MODE_READ :
+	    (SPA_MODE_READ | SPA_MODE_WRITE));
 
 	dmu_objset_register_type(DMU_OST_ZFS, space_delta_cb);
 
 	g_readonly = readonly;
-	g_importargs.unique = B_TRUE;
 	g_importargs.can_be_active = readonly;
 	g_pool = strdup(target);
 
-	error = zpool_tryimport(g_zfs, target, &config, &g_importargs);
+	error = zpool_find_config(NULL, target, &config, &g_importargs,
+	    &libzpool_config_ops);
 	if (error)
-		fatal(NULL, FTAG, "cannot import '%s': %s", target,
-		    libzfs_error_description(g_zfs));
+		fatal(NULL, FTAG, "cannot import '%s'", target);
 
 	props = NULL;
 	if (readonly) {
@@ -153,6 +149,7 @@ zhack_import(char *target, boolean_t readonly)
 	zfeature_checks_disable = B_TRUE;
 	error = spa_import(target, config, props,
 	    (readonly ?  ZFS_IMPORT_SKIP_MMP : ZFS_IMPORT_NORMAL));
+	fnvlist_free(config);
 	zfeature_checks_disable = B_FALSE;
 	if (error == EEXIST)
 		error = 0;
@@ -268,7 +265,7 @@ zhack_feature_enable_sync(void *arg, dmu_tx_t *tx)
 static void
 zhack_do_feature_enable(int argc, char **argv)
 {
-	char c;
+	int c;
 	char *desc, *target;
 	spa_t *spa;
 	objset_t *mos;
@@ -363,7 +360,7 @@ feature_decr_sync(void *arg, dmu_tx_t *tx)
 static void
 zhack_do_feature_ref(int argc, char **argv)
 {
-	char c;
+	int c;
 	char *target;
 	boolean_t decr = B_FALSE;
 	spa_t *spa;
@@ -483,7 +480,7 @@ main(int argc, char **argv)
 	char *path[MAX_NUM_PATHS];
 	const char *subcommand;
 	int rv = 0;
-	char c;
+	int c;
 
 	g_importargs.path = path;
 
@@ -529,7 +526,6 @@ main(int argc, char **argv)
 		    "changes may not be committed to disk\n");
 	}
 
-	libzfs_fini(g_zfs);
 	kernel_fini();
 
 	return (rv);

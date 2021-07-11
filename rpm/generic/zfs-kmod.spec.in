@@ -37,6 +37,7 @@
 #define buildforkernels akmod
 
 %bcond_with     debug
+%bcond_with     debuginfo
 
 
 Name:           %{module}-kmod
@@ -47,10 +48,21 @@ Summary:        Kernel module(s)
 
 Group:          System Environment/Kernel
 License:        @ZFS_META_LICENSE@
-URL:            http://zfsonlinux.org/
+URL:            https://github.com/openzfs/zfs
 Source0:        %{module}-%{version}.tar.gz
 Source10:       kmodtool
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id} -u -n)
+%if 0%{?rhel}%{?fedora}
+BuildRequires:  gcc, make
+BuildRequires:  elfutils-libelf-devel
+%endif
+
+%if 0%{?rhel}%{?fedora}%{?suse_version}
+# We don't directly use it, but if this isn't installed, rpmbuild as root can
+# crash+corrupt rpmdb
+# See issue #12071
+BuildRequires:  ncompress
+%endif
 
 # The developments headers will conflict with the dkms packages.
 Conflicts:      %{module}-dkms
@@ -78,26 +90,15 @@ BuildRequires:  %{_bindir}/kmodtool
 %endif
 %endif
 
-%if 0%{?rhel}%{?fedora}%{?suse_version}
-BuildRequires:             kmod-spl-devel = %{version}
-%global KmodsRequires      kmod-spl
-%global KmodsDevelRequires kmod-spl-devel
-%global KmodsMetaRequires  spl-kmod
-%endif
-
 # LDFLAGS are not sanitized by arch/*/Makefile for these architectures.
 %ifarch ppc ppc64 ppc64le aarch64
 %global __global_ldflags %{nil}
 %endif
 
-%if 0%{?fedora} >= 17
-%define prefix  /usr
-%endif
-
 # Kmodtool does its magic here.  A patched version of kmodtool is shipped
 # with the source rpm until kmod development packages are supported upstream.
 # https://bugzilla.rpmfusion.org/show_bug.cgi?id=2714
-%{expand:%(bash %{SOURCE10} --target %{_target_cpu} %{?repo:--repo %{?repo}} --kmodname %{name} %{?buildforkernels:--%{buildforkernels}} --devel %{?prefix:--prefix "%{?prefix}"} %{?kernels:--for-kernels "%{?kernels}"} %{?kernelbuildroot:--buildroot "%{?kernelbuildroot}"} 2>/dev/null) }
+%{expand:%(bash %{SOURCE10} --target %{_target_cpu} %{?repo:--repo %{?repo}} --kmodname %{name} %{?buildforkernels:--%{buildforkernels}} --devel %{?prefix:--prefix "%{?prefix}"} %{?kernels:--for-kernels "%{?kernels}"} %{?kernelbuildroot:--buildroot "%{?kernelbuildroot}"} --obsolete-name spl --obsolete-version 0.8 2>/dev/null) }
 
 
 %description
@@ -108,7 +109,7 @@ This package contains the ZFS kernel modules.
 %{?kmodtool_check}
 
 # Print kmodtool output for debugging purposes:
-bash %{SOURCE10}  --target %{_target_cpu} %{?repo:--repo %{?repo}} --kmodname %{name} %{?buildforkernels:--%{buildforkernels}} --devel %{?prefix:--prefix "%{?prefix}"} %{?kernels:--for-kernels "%{?kernels}"} %{?kernelbuildroot:--buildroot "%{?kernelbuildroot}"} 2>/dev/null
+bash %{SOURCE10}  --target %{_target_cpu} %{?repo:--repo %{?repo}} --kmodname %{name} %{?buildforkernels:--%{buildforkernels}} --devel %{?prefix:--prefix "%{?prefix}"} %{?kernels:--for-kernels "%{?kernels}"} %{?kernelbuildroot:--buildroot "%{?kernelbuildroot}"} --obsolete-name spl --obsolete-version 0.8 2>/dev/null
 
 %if %{with debug}
     %define debug --enable-debug
@@ -116,27 +117,11 @@ bash %{SOURCE10}  --target %{_target_cpu} %{?repo:--repo %{?repo}} --kmodname %{
     %define debug --disable-debug
 %endif
 
-#
-# Allow the overriding of spl locations
-#
-%if %{defined require_splver}
-%define splver %{require_splver}
+%if %{with debuginfo}
+    %define debuginfo --enable-debuginfo
 %else
-%define splver %{version}
+    %define debuginfo --disable-debuginfo
 %endif
-
-%if %{defined require_spldir}
-%define spldir %{require_spldir}
-%else
-%define spldir %{_usrsrc}/spl-%{splver}
-%endif
-
-%if %{defined require_splobj}
-%define splobj %{require_splobj}
-%else
-%define splobj %{spldir}/${kernel_version%%___*}
-%endif
-
 
 # Leverage VPATH from configure to avoid making multiple copies.
 %define _configure ../%{module}-%{version}/configure
@@ -154,9 +139,8 @@ for kernel_version in %{?kernel_versions}; do
         --with-config=kernel \
         --with-linux=%{ksrc} \
         --with-linux-obj=%{kobj} \
-        --with-spl="%{spldir}" \
-        --with-spl-obj="%{splobj}" \
-        %{debug}
+        %{debug} \
+        %{debuginfo}
     make %{?_smp_mflags}
     cd ..
 done
@@ -181,8 +165,3 @@ chmod u+x ${RPM_BUILD_ROOT}%{kmodinstdir_prefix}/*/extra/*/*/*
 
 %clean
 rm -rf $RPM_BUILD_ROOT
-
-%changelog
-* Wed Jul 26 2017 Brian Behlendorf <behlendorf1@llnl.gov> - 0.7.0-1
-- Released 0.7.0-1, detailed release notes are available at:
-- https://github.com/zfsonlinux/zfs/releases/tag/zfs-0.7.0

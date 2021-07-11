@@ -20,17 +20,18 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012, 2015 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2021 by Delphix. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
-#include <sys/refcount.h>
+#include <sys/zfs_refcount.h>
 
-#ifdef _KERNEL
-int reference_tracking_enable = FALSE; /* runs out of memory too easily */
-#else
-int reference_tracking_enable = TRUE;
-#endif
+/*
+ * Reference count tracking is disabled by default.  It's memory requirements
+ * are reasonable, however as implemented it consumes a significant amount of
+ * cpu time.  Until its performance is improved it should be manually enabled.
+ */
+int reference_tracking_enable = FALSE;
 int reference_history = 3; /* tunable */
 
 #ifdef	ZFS_DEBUG
@@ -38,7 +39,7 @@ static kmem_cache_t *reference_cache;
 static kmem_cache_t *reference_history_cache;
 
 void
-refcount_init(void)
+zfs_refcount_init(void)
 {
 	reference_cache = kmem_cache_create("reference_cache",
 	    sizeof (reference_t), 0, NULL, NULL, NULL, NULL, NULL, 0);
@@ -48,14 +49,14 @@ refcount_init(void)
 }
 
 void
-refcount_fini(void)
+zfs_refcount_fini(void)
 {
 	kmem_cache_destroy(reference_cache);
 	kmem_cache_destroy(reference_history_cache);
 }
 
 void
-refcount_create(refcount_t *rc)
+zfs_refcount_create(zfs_refcount_t *rc)
 {
 	mutex_init(&rc->rc_mtx, NULL, MUTEX_DEFAULT, NULL);
 	list_create(&rc->rc_list, sizeof (reference_t),
@@ -68,25 +69,25 @@ refcount_create(refcount_t *rc)
 }
 
 void
-refcount_create_tracked(refcount_t *rc)
+zfs_refcount_create_tracked(zfs_refcount_t *rc)
 {
-	refcount_create(rc);
+	zfs_refcount_create(rc);
 	rc->rc_tracked = B_TRUE;
 }
 
 void
-refcount_create_untracked(refcount_t *rc)
+zfs_refcount_create_untracked(zfs_refcount_t *rc)
 {
-	refcount_create(rc);
+	zfs_refcount_create(rc);
 	rc->rc_tracked = B_FALSE;
 }
 
 void
-refcount_destroy_many(refcount_t *rc, uint64_t number)
+zfs_refcount_destroy_many(zfs_refcount_t *rc, uint64_t number)
 {
 	reference_t *ref;
 
-	ASSERT(rc->rc_count == number);
+	ASSERT3U(rc->rc_count, ==, number);
 	while ((ref = list_head(&rc->rc_list))) {
 		list_remove(&rc->rc_list, ref);
 		kmem_cache_free(reference_cache, ref);
@@ -103,25 +104,25 @@ refcount_destroy_many(refcount_t *rc, uint64_t number)
 }
 
 void
-refcount_destroy(refcount_t *rc)
+zfs_refcount_destroy(zfs_refcount_t *rc)
 {
-	refcount_destroy_many(rc, 0);
+	zfs_refcount_destroy_many(rc, 0);
 }
 
 int
-refcount_is_zero(refcount_t *rc)
+zfs_refcount_is_zero(zfs_refcount_t *rc)
 {
 	return (rc->rc_count == 0);
 }
 
 int64_t
-refcount_count(refcount_t *rc)
+zfs_refcount_count(zfs_refcount_t *rc)
 {
 	return (rc->rc_count);
 }
 
 int64_t
-refcount_add_many(refcount_t *rc, uint64_t number, void *holder)
+zfs_refcount_add_many(zfs_refcount_t *rc, uint64_t number, const void *holder)
 {
 	reference_t *ref = NULL;
 	int64_t count;
@@ -132,7 +133,7 @@ refcount_add_many(refcount_t *rc, uint64_t number, void *holder)
 		ref->ref_number = number;
 	}
 	mutex_enter(&rc->rc_mtx);
-	ASSERT(rc->rc_count >= 0);
+	ASSERT3U(rc->rc_count, >=, 0);
 	if (rc->rc_tracked)
 		list_insert_head(&rc->rc_list, ref);
 	rc->rc_count += number;
@@ -143,19 +144,20 @@ refcount_add_many(refcount_t *rc, uint64_t number, void *holder)
 }
 
 int64_t
-zfs_refcount_add(refcount_t *rc, void *holder)
+zfs_refcount_add(zfs_refcount_t *rc, const void *holder)
 {
-	return (refcount_add_many(rc, 1, holder));
+	return (zfs_refcount_add_many(rc, 1, holder));
 }
 
 int64_t
-refcount_remove_many(refcount_t *rc, uint64_t number, void *holder)
+zfs_refcount_remove_many(zfs_refcount_t *rc, uint64_t number,
+    const void *holder)
 {
 	reference_t *ref;
 	int64_t count;
 
 	mutex_enter(&rc->rc_mtx);
-	ASSERT(rc->rc_count >= number);
+	ASSERT3U(rc->rc_count, >=, number);
 
 	if (!rc->rc_tracked) {
 		rc->rc_count -= number;
@@ -197,13 +199,13 @@ refcount_remove_many(refcount_t *rc, uint64_t number, void *holder)
 }
 
 int64_t
-refcount_remove(refcount_t *rc, void *holder)
+zfs_refcount_remove(zfs_refcount_t *rc, const void *holder)
 {
-	return (refcount_remove_many(rc, 1, holder));
+	return (zfs_refcount_remove_many(rc, 1, holder));
 }
 
 void
-refcount_transfer(refcount_t *dst, refcount_t *src)
+zfs_refcount_transfer(zfs_refcount_t *dst, zfs_refcount_t *src)
 {
 	int64_t count, removed_count;
 	list_t list, removed;
@@ -234,8 +236,8 @@ refcount_transfer(refcount_t *dst, refcount_t *src)
 }
 
 void
-refcount_transfer_ownership(refcount_t *rc, void *current_holder,
-    void *new_holder)
+zfs_refcount_transfer_ownership_many(zfs_refcount_t *rc, uint64_t number,
+    const void *current_holder, const void *new_holder)
 {
 	reference_t *ref;
 	boolean_t found = B_FALSE;
@@ -248,7 +250,8 @@ refcount_transfer_ownership(refcount_t *rc, void *current_holder,
 
 	for (ref = list_head(&rc->rc_list); ref;
 	    ref = list_next(&rc->rc_list, ref)) {
-		if (ref->ref_holder == current_holder) {
+		if (ref->ref_holder == current_holder &&
+		    ref->ref_number == number) {
 			ref->ref_holder = new_holder;
 			found = B_TRUE;
 			break;
@@ -258,13 +261,21 @@ refcount_transfer_ownership(refcount_t *rc, void *current_holder,
 	mutex_exit(&rc->rc_mtx);
 }
 
+void
+zfs_refcount_transfer_ownership(zfs_refcount_t *rc, const void *current_holder,
+    const void *new_holder)
+{
+	return (zfs_refcount_transfer_ownership_many(rc, 1, current_holder,
+	    new_holder));
+}
+
 /*
  * If tracking is enabled, return true if a reference exists that matches
  * the "holder" tag. If tracking is disabled, then return true if a reference
  * might be held.
  */
 boolean_t
-refcount_held(refcount_t *rc, void *holder)
+zfs_refcount_held(zfs_refcount_t *rc, const void *holder)
 {
 	reference_t *ref;
 
@@ -292,7 +303,7 @@ refcount_held(refcount_t *rc, void *holder)
  * since the reference might not be held.
  */
 boolean_t
-refcount_not_held(refcount_t *rc, void *holder)
+zfs_refcount_not_held(zfs_refcount_t *rc, const void *holder)
 {
 	reference_t *ref;
 
@@ -313,4 +324,12 @@ refcount_not_held(refcount_t *rc, void *holder)
 	mutex_exit(&rc->rc_mtx);
 	return (B_TRUE);
 }
+
+/* BEGIN CSTYLED */
+ZFS_MODULE_PARAM(zfs, ,reference_tracking_enable, INT, ZMOD_RW,
+	"Track reference holders to refcount_t objects");
+
+ZFS_MODULE_PARAM(zfs, ,reference_history, INT, ZMOD_RW,
+	"Maximum reference holders being tracked");
+/* END CSTYLED */
 #endif	/* ZFS_DEBUG */

@@ -27,6 +27,8 @@
 
 . $STF_SUITE/include/libtest.shlib
 
+check_nfs
+
 # Make sure NFS server is running before testing.
 setup_nfs_server
 

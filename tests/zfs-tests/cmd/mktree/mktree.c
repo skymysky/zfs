@@ -30,7 +30,9 @@
 #include <unistd.h>
 #include <string.h>
 #include <fcntl.h>
-#include <attr/xattr.h>
+#ifdef __linux__
+#include <sys/xattr.h>
+#endif
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/param.h>
@@ -137,8 +139,12 @@ mktree(char *pdir, int level)
 static char *
 getfdname(char *pdir, char type, int level, int dir, int file)
 {
-	(void) snprintf(fdname, sizeof (fdname),
-	    "%s/%c-l%dd%df%d", pdir, type, level, dir, file);
+	size_t size = sizeof (fdname);
+	if (snprintf(fdname, size, "%s/%c-l%dd%df%d", pdir, type, level, dir,
+	    file) >= size) {
+		(void) fprintf(stderr, "fdname truncated\n");
+		exit(EINVAL);
+	}
 	return (fdname);
 }
 
@@ -172,11 +178,13 @@ crtfile(char *pname)
 		exit(errno);
 	}
 
+#ifdef __linux__
 	if (fsetxattr(fd, "user.xattr", pbuf, 1024, 0) < 0) {
 		(void) fprintf(stderr, "fsetxattr(fd, \"xattr\", pbuf, "
 		    "1024, 0) failed.\n[%d]: %s.\n", errno, strerror(errno));
 		exit(errno);
 	}
+#endif
 
 	(void) close(fd);
 	free(pbuf);

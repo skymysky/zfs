@@ -1,14 +1,14 @@
+include $(top_srcdir)/config/Substfiles.am
+
 pkgdatadir = $(datadir)/@PACKAGE@/zfs-tests/include
-dist_pkgdata_SCRIPTS = \
+dist_pkgdata_DATA = \
 	blkdev.shlib \
 	commands.cfg \
-	default.cfg \
 	libtest.shlib \
 	math.shlib \
 	properties.shlib \
+	tunables.cfg \
 	zpool_script.shlib
 
-EXTRA_DIST=default.cfg.in
-
-distclean-local::
-	-$(RM) default.cfg
+nodist_pkgdata_DATA = default.cfg
+SUBSTFILES += $(nodist_pkgdata_DATA)

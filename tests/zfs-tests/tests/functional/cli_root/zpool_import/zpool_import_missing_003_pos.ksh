@@ -59,7 +59,12 @@
 
 verify_runnable "global"
 
-set -A vdevs "" "mirror" "raidz"
+# See issue: https://github.com/openzfs/zfs/issues/6839
+if ! is_illumos; then
+	log_unsupported "Test case may be slow"
+fi
+
+set -A vdevs "" "mirror" "raidz" "draid"
 
 function verify
 {
@@ -200,6 +205,9 @@ while (( i < ${#vdevs[*]} )); do
 					action=log_mustnot
 					;;
 				'raidz')  (( overlap > 1 )) && \
+					action=log_mustnot
+					;;
+				'draid')  (( overlap > 1 )) && \
 					action=log_mustnot
 					;;
 				'')  action=log_mustnot

@@ -46,31 +46,23 @@
 
 function cleanup
 {
-	if poolexists $TESTPOOL ; then
-                destroy_pool $TESTPOOL
-        fi
-	if [ -d /${TESTPOOL}.root ]
-	then
-		log_must rmdir /${TESTPOOL}.root
-	fi
+	poolexists $TESTPOOL && destroy_pool $TESTPOOL
+	rm -rf /${TESTPOOL}.root
+	rm -f $values
 }
 
 log_onexit cleanup
 
 log_assert "zpool create -R works as expected"
 
-if [[ -n $DISK ]]; then
-	disk=$DISK
-else
-	disk=$DISK0
-fi
+typeset values=$TEST_BASE_DIR/values.$$
 
 log_must rm -f /etc/zfs/zpool.cache
-log_must mkdir /${TESTPOOL}.root
-log_must zpool create -R /${TESTPOOL}.root $TESTPOOL $disk
+log_must rm -rf /${TESTPOOL}.root
+log_must zpool create -R /${TESTPOOL}.root $TESTPOOL $DISK0
 if [ ! -d /${TESTPOOL}.root ]
 then
-	log_fail "Mountpoint was not create when using zpool with -R flag!"
+	log_fail "Mountpoint was not created when using zpool with -R flag!"
 fi
 
 FS=$(zfs list $TESTPOOL)
@@ -80,23 +72,23 @@ then
 fi
 
 log_must zpool get all $TESTPOOL
-zpool get all $TESTPOOL > /tmp/values.$$
+zpool get all $TESTPOOL > $values
 
 # check for the cachefile property, verifying that it's set to 'none'
-grep "$TESTPOOL[ ]*cachefile[ ]*none" /tmp/values.$$ > /dev/null 2>&1
+grep "$TESTPOOL[ ]*cachefile[ ]*none" $values > /dev/null 2>&1
 if [ $? -ne 0 ]
 then
 	log_fail "zpool property \'cachefile\' was not set to \'none\'."
 fi
 
 # check that the root = /mountpoint property is set correctly
-grep "$TESTPOOL[ ]*altroot[ ]*/${TESTPOOL}.root" /tmp/values.$$ > /dev/null 2>&1
+grep "$TESTPOOL[ ]*altroot[ ]*/${TESTPOOL}.root" $values > /dev/null 2>&1
 if [ $? -ne 0 ]
 then
 	log_fail "zpool property root was not found in pool output."
 fi
 
-rm /tmp/values.$$
+rm $values
 
 # finally, check that the pool has no reference in /etc/zfs/zpool.cache
 if [[ -f /etc/zfs/zpool.cache ]] ; then
@@ -107,6 +99,5 @@ if [[ -f /etc/zfs/zpool.cache ]] ; then
 		log_fail "/etc/zfs/zpool.cache appears to have a reference to $TESTPOOL"
 	fi
 fi
-
 
 log_pass "zpool create -R works as expected"

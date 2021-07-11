@@ -32,9 +32,7 @@
 
 # if we're running NIS, turn it off until we clean up
 # (it can cause useradd to take a long time, hitting our TIMEOUT)
-if is_linux; then
-	USED_NIS=false
-else
+if is_illumos; then
 	USES_NIS=false
 	svcs svc:/network/nis/client:default | grep online > /dev/null
 	if [ $? -eq 0 ]
@@ -42,14 +40,16 @@ else
 		svcadm disable -t svc:/network/nis/client:default
 		USES_NIS=true
 	fi
+else
+	USES_NIS=false
 fi
 
 # Make sure we use a brand new user for this
 log_must add_group $ZFS_GROUP
 log_must add_user $ZFS_GROUP $ZFS_USER
 
-echo $ZFS_USER > /tmp/zfs-xattr-test-user.txt
-echo $USES_NIS > /tmp/zfs-xattr-test-nis.txt
+echo $ZFS_USER > $TEST_BASE_DIR/zfs-xattr-test-user.txt
+echo $USES_NIS > $TEST_BASE_DIR/zfs-xattr-test-nis.txt
 
 DISK=${DISKS%% *}
 default_setup $DISK

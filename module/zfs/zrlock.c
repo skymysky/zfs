@@ -39,7 +39,7 @@
  * function calls.
  */
 #include <sys/zrlock.h>
-#include <sys/trace_zrlock.h>
+#include <sys/trace_zfs.h>
 
 /*
  * A ZRL can be locked only while there are zero references, so ZRL_LOCKED is
@@ -82,8 +82,10 @@ zrl_add_impl(zrlock_t *zrl, const char *zc)
 				ASSERT3S((int32_t)n, >=, 0);
 #ifdef	ZFS_DEBUG
 				if (zrl->zr_owner == curthread) {
-					DTRACE_PROBE2(zrlock__reentry,
-					    zrlock_t *, zrl, uint32_t, n);
+					DTRACE_PROBE3(zrlock__reentry,
+					    zrlock_t *, zrl,
+					    kthread_t *, curthread,
+					    uint32_t, n);
 				}
 				zrl->zr_owner = curthread;
 				zrl->zr_caller = zc;
@@ -155,15 +157,6 @@ zrl_exit(zrlock_t *zrl)
 }
 
 int
-zrl_refcount(zrlock_t *zrl)
-{
-	ASSERT3S(zrl->zr_refcount, >, ZRL_DESTROYED);
-
-	int n = (int)zrl->zr_refcount;
-	return (n <= 0 ? 0 : n);
-}
-
-int
 zrl_is_zero(zrlock_t *zrl)
 {
 	ASSERT3S(zrl->zr_refcount, >, ZRL_DESTROYED);
@@ -187,7 +180,7 @@ zrl_owner(zrlock_t *zrl)
 }
 #endif
 
-#if defined(_KERNEL) && defined(HAVE_SPL)
+#if defined(_KERNEL)
 
 EXPORT_SYMBOL(zrl_add_impl);
 EXPORT_SYMBOL(zrl_remove);

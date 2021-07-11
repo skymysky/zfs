@@ -40,15 +40,11 @@
 #
 # STRATEGY:
 # 1. Modify /etc/vfstab to add the test zvol as swap device.
-# 2. Use /sbin/swapadd to add zvol as swap device throuth /etc/vfstab
+# 2. Use /sbin/swapadd to add zvol as swap device through /etc/vfstab
 # 3. Create a file under /tmp and verify the file
 #
 
 verify_runnable "global"
-
-if is_linux; then
-	log_unsupported "Modifies global non-ZFS system config"
-fi
 
 function cleanup
 {
@@ -73,8 +69,8 @@ log_onexit cleanup
 
 voldev=${ZVOL_DEVDIR}/$TESTPOOL/$TESTVOL
 VFSTAB_FILE=/etc/vfstab
-NEW_VFSTAB_FILE=/var/tmp/zvol_vfstab.$$
-PREV_VFSTAB_FILE=/var/tmp/zvol_vfstab.PREV.$$
+NEW_VFSTAB_FILE=$TEST_BASE_DIR/zvol_vfstab.$$
+PREV_VFSTAB_FILE=$TEST_BASE_DIR/zvol_vfstab.PREV.$$
 
 [[ -f $NEW_VFSTAB_FILE ]] && cp /dev/null $NEW_VFSTAB_FILE
 

@@ -46,15 +46,20 @@ extern "C" {
 #define	__x86
 #endif
 
+#if defined(_ILP32)
+/* x32-specific defines; careful to *not* define _LP64 here */
+#else
 #if !defined(_LP64)
 #define	_LP64
 #endif
+#endif
 
-#if !defined(_LITTLE_ENDIAN)
-#define	_LITTLE_ENDIAN
+#if !defined(_ZFS_LITTLE_ENDIAN)
+#define	_ZFS_LITTLE_ENDIAN
 #endif
 
 #define	_SUNOS_VTOC_16
+#define	HAVE_EFFICIENT_UNALIGNED_ACCESS
 
 /* i386 arch specific defines */
 #elif defined(__i386) || defined(__i386__)
@@ -71,11 +76,12 @@ extern "C" {
 #define	_ILP32
 #endif
 
-#if !defined(_LITTLE_ENDIAN)
-#define	_LITTLE_ENDIAN
+#if !defined(_ZFS_LITTLE_ENDIAN)
+#define	_ZFS_LITTLE_ENDIAN
 #endif
 
 #define	_SUNOS_VTOC_16
+#define	HAVE_EFFICIENT_UNALIGNED_ACCESS
 
 /* powerpc arch specific defines */
 #elif defined(__powerpc) || defined(__powerpc__) || defined(__powerpc64__)
@@ -99,6 +105,25 @@ extern "C" {
 #endif
 
 #define	_SUNOS_VTOC_16
+#define	HAVE_EFFICIENT_UNALIGNED_ACCESS
+
+#if defined(__BYTE_ORDER)
+#if defined(__BIG_ENDIAN) && __BYTE_ORDER == __BIG_ENDIAN
+#define	_ZFS_BIG_ENDIAN
+#elif defined(__LITTLE_ENDIAN) && __BYTE_ORDER == __LITTLE_ENDIAN
+#define	_ZFS_LITTLE_ENDIAN
+#endif
+#elif defined(_BYTE_ORDER)
+#if defined(_BIG_ENDIAN) && _BYTE_ORDER == _BIG_ENDIAN
+#define	_ZFS_BIG_ENDIAN
+#elif defined(_LITTLE_ENDIAN) && _BYTE_ORDER == _LITTLE_ENDIAN
+#define	_ZFS_LITTLE_ENDIAN
+#endif
+#elif defined(_BIG_ENDIAN) && !defined(_LITTLE_ENDIAN)
+#define	_ZFS_BIG_ENDIAN
+#elif defined(_LITTLE_ENDIAN) && !defined(_BIG_ENDIAN)
+#define	_ZFS_LITTLE_ENDIAN
+#endif
 
 /* arm arch specific defines */
 #elif defined(__arm) || defined(__arm__) || defined(__aarch64__)
@@ -122,12 +147,16 @@ extern "C" {
 #endif
 
 #if defined(__ARMEL__) || defined(__AARCH64EL__)
-#define	_LITTLE_ENDIAN
+#define	_ZFS_LITTLE_ENDIAN
 #else
-#define	_BIG_ENDIAN
+#define	_ZFS_BIG_ENDIAN
 #endif
 
 #define	_SUNOS_VTOC_16
+
+#if defined(__ARM_FEATURE_UNALIGNED)
+#define	HAVE_EFFICIENT_UNALIGNED_ACCESS
+#endif
 
 /* sparc arch specific defines */
 #elif defined(__sparc) || defined(__sparc__)
@@ -140,7 +169,7 @@ extern "C" {
 #define	__sparc__
 #endif
 
-#define	_BIG_ENDIAN
+#define	_ZFS_BIG_ENDIAN
 #define	_SUNOS_VTOC_16
 
 #if defined(__arch64__)
@@ -165,30 +194,49 @@ extern "C" {
 #endif
 #endif
 
-#define	_BIG_ENDIAN
+#define	_ZFS_BIG_ENDIAN
 #define	_SUNOS_VTOC_16
 
 /* MIPS arch specific defines */
 #elif defined(__mips__)
 
 #if defined(__MIPSEB__)
-#define	_BIG_ENDIAN
+#define	_ZFS_BIG_ENDIAN
 #elif defined(__MIPSEL__)
-#define	_LITTLE_ENDIAN
+#define	_ZFS_LITTLE_ENDIAN
 #else
 #error MIPS no endian specified
 #endif
 
-#ifndef _LP64
+#if !defined(_LP64) && !defined(_ILP32)
 #define	_ILP32
 #endif
+
+#define	_SUNOS_VTOC_16
+
+/*
+ * RISC-V arch specific defines
+ * only RV64G (including atomic) LP64 is supported yet
+ */
+#elif defined(__riscv) && defined(_LP64) && _LP64 && \
+	defined(__riscv_atomic) && __riscv_atomic
+
+#ifndef	__riscv__
+#define	__riscv__
+#endif
+
+#ifndef	__rv64g__
+#define	__rv64g__
+#endif
+
+#define	_ZFS_LITTLE_ENDIAN
 
 #define	_SUNOS_VTOC_16
 
 #else
 /*
  * Currently supported:
- * x86_64, i386, arm, powerpc, s390, sparc, and mips
+ * x86_64, x32, i386, arm, powerpc, s390, sparc, mips, and RV64G
  */
 #error "Unsupported ISA type"
 #endif
@@ -201,12 +249,12 @@ extern "C" {
 #error "Neither _ILP32 or _LP64 are defined"
 #endif
 
-#if defined(_LITTLE_ENDIAN) && defined(_BIG_ENDIAN)
-#error "Both _LITTLE_ENDIAN and _BIG_ENDIAN are defined"
+#if defined(_ZFS_LITTLE_ENDIAN) && defined(_ZFS_BIG_ENDIAN)
+#error "Both _ZFS_LITTLE_ENDIAN and _ZFS_BIG_ENDIAN are defined"
 #endif
 
-#if !defined(_LITTLE_ENDIAN) && !defined(_BIG_ENDIAN)
-#error "Neither _LITTLE_ENDIAN nor _BIG_ENDIAN are defined"
+#if !defined(_ZFS_LITTLE_ENDIAN) && !defined(_ZFS_BIG_ENDIAN)
+#error "Neither _ZFS_LITTLE_ENDIAN nor _ZFS_BIG_ENDIAN are defined"
 #endif
 
 #ifdef  __cplusplus

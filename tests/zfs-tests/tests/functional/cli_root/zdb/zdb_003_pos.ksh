@@ -34,7 +34,16 @@ log_onexit cleanup
 function cleanup
 {
 	datasetexists $TESTPOOL && destroy_pool $TESTPOOL
+	if is_freebsd ; then
+		log_must sysctl kern.geom.debugflags=$saved_debugflags
+	fi
 }
+
+if is_freebsd ; then
+	# FreeBSD won't allow writing to an in-use device without this set
+	saved_debugflags=$(sysctl -n kern.geom.debugflags)
+	log_must sysctl kern.geom.debugflags=16
+fi
 
 verify_runnable "global"
 verify_disk_count "$DISKS" 2
@@ -43,6 +52,11 @@ config_count=(1 2)
 set -A DISK $DISKS
 
 default_mirror_setup_noexit $DISKS
+
+DEVS=$(get_pool_devices ${TESTPOOL} ${DEV_RDSKDIR})
+log_note "$DEVS"
+[[ -n $DEVS ]] && set -A DISK $DEVS
+
 log_must dd if=/dev/${DISK[0]} of=/dev/${DISK[1]} bs=1K count=256 conv=notrunc
 
 for x in 0 1 ; do

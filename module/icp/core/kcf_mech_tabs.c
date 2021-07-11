@@ -103,7 +103,7 @@ kcf_mech_entry_tab_t kcf_mech_tabs_tab[KCF_LAST_OPSCLASS + 1] = {
  * Per-algorithm internal thresholds for the minimum input size of before
  * offloading to hardware provider.
  * Dispatching a crypto operation  to a hardware provider entails paying the
- * cost of an additional context switch.  Measurments with Sun Accelerator 4000
+ * cost of an additional context switch.  Measurements with Sun Accelerator 4000
  * shows that 512-byte jobs or smaller are better handled in software.
  * There is room for refinement here.
  *
@@ -321,7 +321,7 @@ kcf_create_mech_entry(kcf_ops_class_t class, char *mechname)
 		mutex_enter(&(me_tab[i].me_mutex));
 		if (me_tab[i].me_name[0] == 0) {
 			/* Found an empty spot */
-			(void) strncpy(me_tab[i].me_name, mechname,
+			(void) strlcpy(me_tab[i].me_name, mechname,
 			    CRYPTO_MAX_MECH_NAME);
 			me_tab[i].me_name[CRYPTO_MAX_MECH_NAME-1] = '\0';
 			me_tab[i].me_mechid = KCF_MECHID(class, i);

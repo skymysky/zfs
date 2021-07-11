@@ -38,7 +38,6 @@
 #ifdef	_KERNEL
 #include <sys/param.h>
 #include <sys/sysmacros.h>
-#include <sys/systm.h>
 #include <sys/debug.h>
 #include <sys/kmem.h>
 #include <sys/sunddi.h>
@@ -70,7 +69,7 @@
 #define	UCONV_OUT_ENDIAN_MASKS	(UCONV_OUT_BIG_ENDIAN | UCONV_OUT_LITTLE_ENDIAN)
 
 /* Native and reversed endian macros. */
-#ifdef	_BIG_ENDIAN
+#ifdef	_ZFS_BIG_ENDIAN
 #define	UCONV_IN_NAT_ENDIAN	UCONV_IN_BIG_ENDIAN
 #define	UCONV_IN_REV_ENDIAN	UCONV_IN_LITTLE_ENDIAN
 #define	UCONV_OUT_NAT_ENDIAN	UCONV_OUT_BIG_ENDIAN
@@ -854,7 +853,7 @@ uconv_u8tou32(const uchar_t *u8s, size_t *utf8len,
 	return (0);
 }
 
-#if defined(_KERNEL) && defined(HAVE_SPL)
+#if defined(_KERNEL)
 EXPORT_SYMBOL(uconv_u16tou32);
 EXPORT_SYMBOL(uconv_u16tou8);
 EXPORT_SYMBOL(uconv_u32tou16);

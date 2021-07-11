@@ -53,16 +53,15 @@ function uncompress_pool
 
 	log_note "Creating pool from $POOL_FILE"
 	log_must bzcat \
-	    $STF_SUITE/tests/functional/cli_root/zpool_import/$POOL_FILE.bz2 \
+	    $STF_SUITE/tests/functional/cli_root/zpool_import/blockfiles/$POOL_FILE.bz2 \
 	    > /$TESTPOOL/$POOL_FILE
 	return 0
 }
 
 function cleanup
 {
-	poolexists $POOL_NAME && log_must zpool destroy $POOL_NAME
-	[[ -e /$TESTPOOL/$POOL_FILE ]] && rm /$TESTPOOL/$POOL_FILE
-	return 0
+	poolexists $POOL_NAME && destroy_pool $POOL_NAME
+	rm -f /$TESTPOOL/$POOL_FILE
 }
 
 log_assert "'zpool import' fails for pool that was not cleanly exported"

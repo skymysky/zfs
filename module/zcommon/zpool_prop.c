@@ -21,7 +21,8 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2011 Nexenta Systems, Inc. All rights reserved.
- * Copyright (c) 2012, 2014 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2018 by Delphix. All rights reserved.
+ * Copyright (c) 2021, Colm Buckley <colm@tuatha.org>
  */
 
 #include <sys/zio.h>
@@ -32,9 +33,7 @@
 
 #include "zfs_prop.h"
 
-#if defined(_KERNEL)
-#include <sys/systm.h>
-#else
+#if !defined(_KERNEL)
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
@@ -73,6 +72,9 @@ zpool_prop_init(void)
 	    PROP_DEFAULT, ZFS_TYPE_POOL, "<file> | none", "CACHEFILE");
 	zprop_register_string(ZPOOL_PROP_COMMENT, "comment", NULL,
 	    PROP_DEFAULT, ZFS_TYPE_POOL, "<comment-string>", "COMMENT");
+	zprop_register_string(ZPOOL_PROP_COMPATIBILITY, "compatibility",
+	    "off", PROP_DEFAULT, ZFS_TYPE_POOL,
+	    "<file[,file...]> | off | legacy", "COMPATIBILITY");
 
 	/* readonly number properties */
 	zprop_register_number(ZPOOL_PROP_SIZE, "size", 0, PROP_READONLY,
@@ -81,6 +83,8 @@ zpool_prop_init(void)
 	    ZFS_TYPE_POOL, "<size>", "FREE");
 	zprop_register_number(ZPOOL_PROP_FREEING, "freeing", 0, PROP_READONLY,
 	    ZFS_TYPE_POOL, "<size>", "FREEING");
+	zprop_register_number(ZPOOL_PROP_CHECKPOINT, "checkpoint", 0,
+	    PROP_READONLY, ZFS_TYPE_POOL, "<size>", "CKPOINT");
 	zprop_register_number(ZPOOL_PROP_LEAKED, "leaked", 0, PROP_READONLY,
 	    ZFS_TYPE_POOL, "<size>", "LEAKED");
 	zprop_register_number(ZPOOL_PROP_ALLOCATED, "allocated", 0,
@@ -93,6 +97,8 @@ zpool_prop_init(void)
 	    ZFS_TYPE_POOL, "<size>", "CAP");
 	zprop_register_number(ZPOOL_PROP_GUID, "guid", 0, PROP_READONLY,
 	    ZFS_TYPE_POOL, "<guid>", "GUID");
+	zprop_register_number(ZPOOL_PROP_LOAD_GUID, "load_guid", 0,
+	    PROP_READONLY, ZFS_TYPE_POOL, "<load_guid>", "LOAD_GUID");
 	zprop_register_number(ZPOOL_PROP_HEALTH, "health", 0, PROP_READONLY,
 	    ZFS_TYPE_POOL, "<state>", "HEALTH");
 	zprop_register_number(ZPOOL_PROP_DEDUPRATIO, "dedupratio", 0,
@@ -102,8 +108,6 @@ zpool_prop_init(void)
 	/* default number properties */
 	zprop_register_number(ZPOOL_PROP_VERSION, "version", SPA_VERSION,
 	    PROP_DEFAULT, ZFS_TYPE_POOL, "<version>", "VERSION");
-	zprop_register_number(ZPOOL_PROP_DEDUPDITTO, "dedupditto", 0,
-	    PROP_DEFAULT, ZFS_TYPE_POOL, "<threshold (min 100)>", "DEDUPDITTO");
 	zprop_register_number(ZPOOL_PROP_ASHIFT, "ashift", 0, PROP_DEFAULT,
 	    ZFS_TYPE_POOL, "<ashift, 9-16, or 0=default>", "ASHIFT");
 
@@ -128,6 +132,9 @@ zpool_prop_init(void)
 	zprop_register_index(ZPOOL_PROP_FAILUREMODE, "failmode",
 	    ZIO_FAILURE_MODE_WAIT, PROP_DEFAULT, ZFS_TYPE_POOL,
 	    "wait | continue | panic", "FAILMODE", failuremode_table);
+	zprop_register_index(ZPOOL_PROP_AUTOTRIM, "autotrim",
+	    SPA_AUTOTRIM_DEFAULT, PROP_DEFAULT, ZFS_TYPE_POOL,
+	    "on | off", "AUTOTRIM", boolean_table);
 
 	/* hidden properties */
 	zprop_register_hidden(ZPOOL_PROP_NAME, "name", PROP_TYPE_STRING,
@@ -138,6 +145,8 @@ zpool_prop_init(void)
 	    PROP_ONETIME, ZFS_TYPE_POOL, "TNAME");
 	zprop_register_hidden(ZPOOL_PROP_MAXDNODESIZE, "maxdnodesize",
 	    PROP_TYPE_NUMBER, PROP_READONLY, ZFS_TYPE_POOL, "MAXDNODESIZE");
+	zprop_register_hidden(ZPOOL_PROP_DEDUPDITTO, "dedupditto",
+	    PROP_TYPE_NUMBER, PROP_DEFAULT, ZFS_TYPE_POOL, "DEDUPDITTO");
 }
 
 /*
@@ -151,7 +160,7 @@ zpool_name_to_prop(const char *propname)
 
 /*
  * Given a pool property ID, returns the corresponding name.
- * Assuming the pool propety ID is valid.
+ * Assuming the pool property ID is valid.
  */
 const char *
 zpool_prop_to_name(zpool_prop_t prop)
@@ -169,6 +178,12 @@ boolean_t
 zpool_prop_readonly(zpool_prop_t prop)
 {
 	return (zpool_prop_table[prop].pd_attr == PROP_READONLY);
+}
+
+boolean_t
+zpool_prop_setonce(zpool_prop_t prop)
+{
+	return (zpool_prop_table[prop].pd_attr == PROP_ONETIME);
 }
 
 const char *
@@ -224,6 +239,7 @@ zpool_prop_random_value(zpool_prop_t prop, uint64_t seed)
 }
 
 #ifndef _KERNEL
+#include <libzfs.h>
 
 const char *
 zpool_prop_values(zpool_prop_t prop)
@@ -244,7 +260,7 @@ zpool_prop_align_right(zpool_prop_t prop)
 }
 #endif
 
-#if defined(_KERNEL) && defined(HAVE_SPL)
+#if defined(_KERNEL)
 /* zpool property functions */
 EXPORT_SYMBOL(zpool_prop_init);
 EXPORT_SYMBOL(zpool_prop_get_type);

@@ -27,7 +27,6 @@
 #define	_SYS_FS_ZFS_FUID_H
 
 #ifdef _KERNEL
-#include <sys/kidmap.h>
 #include <sys/sid.h>
 #include <sys/dmu.h>
 #include <sys/zfs_vfsops.h>
@@ -117,6 +116,8 @@ extern int zfs_fuid_find_by_domain(zfsvfs_t *, const char *domain,
     char **retdomain, boolean_t addok);
 extern const char *zfs_fuid_find_by_idx(zfsvfs_t *zfsvfs, uint32_t idx);
 extern void zfs_fuid_txhold(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
+extern int zfs_id_to_fuidstr(zfsvfs_t *zfsvfs, const char *domain, uid_t rid,
+    char *buf, size_t len, boolean_t addok);
 #endif
 
 char *zfs_fuid_idx_domain(avl_tree_t *, uint32_t);

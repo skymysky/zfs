@@ -1,7 +1,5 @@
 pkgdatadir = $(datadir)/@PACKAGE@/zfs-tests/tests/functional/cli_root/zpool_add
 dist_pkgdata_SCRIPTS = \
-	zpool_add.cfg \
-	zpool_add.kshlib \
 	setup.ksh \
 	cleanup.ksh \
 	zpool_add_001_pos.ksh \
@@ -15,4 +13,10 @@ dist_pkgdata_SCRIPTS = \
 	zpool_add_009_neg.ksh \
 	zpool_add_010_pos.ksh \
 	add-o_ashift.ksh \
-	add_prop_ashift.ksh
+	add_prop_ashift.ksh \
+	add_nested_replacing_spare.ksh \
+	zpool_add_dryrun_output.ksh
+
+dist_pkgdata_DATA = \
+	zpool_add.cfg \
+	zpool_add.kshlib

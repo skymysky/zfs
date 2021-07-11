@@ -23,6 +23,10 @@
  * Use is subject to license terms.
  */
 
+/*
+ *  Copyright (c) 2020 by Delphix. All rights reserved.
+ */
+
 #ifndef	_SYS_FM_FS_ZFS_H
 #define	_SYS_FM_FS_ZFS_H
 
@@ -37,6 +41,7 @@ extern "C" {
 #define	FM_EREPORT_ZFS_IO			"io"
 #define	FM_EREPORT_ZFS_DATA			"data"
 #define	FM_EREPORT_ZFS_DELAY			"delay"
+#define	FM_EREPORT_ZFS_DEADMAN			"deadman"
 #define	FM_EREPORT_ZFS_POOL			"zpool"
 #define	FM_EREPORT_ZFS_DEVICE_UNKNOWN		"vdev.unknown"
 #define	FM_EREPORT_ZFS_DEVICE_OPEN_FAILED	"vdev.open_failed"
@@ -73,6 +78,7 @@ extern "C" {
 #define	FM_EREPORT_PAYLOAD_ZFS_VDEV_READ_ERRORS	"vdev_read_errors"
 #define	FM_EREPORT_PAYLOAD_ZFS_VDEV_WRITE_ERRORS "vdev_write_errors"
 #define	FM_EREPORT_PAYLOAD_ZFS_VDEV_CKSUM_ERRORS "vdev_cksum_errors"
+#define	FM_EREPORT_PAYLOAD_ZFS_VDEV_DELAYS	"vdev_delays"
 #define	FM_EREPORT_PAYLOAD_ZFS_PARENT_GUID	"parent_guid"
 #define	FM_EREPORT_PAYLOAD_ZFS_PARENT_TYPE	"parent_type"
 #define	FM_EREPORT_PAYLOAD_ZFS_PARENT_PATH	"parent_path"
@@ -86,6 +92,7 @@ extern "C" {
 #define	FM_EREPORT_PAYLOAD_ZFS_ZIO_SIZE		"zio_size"
 #define	FM_EREPORT_PAYLOAD_ZFS_ZIO_FLAGS	"zio_flags"
 #define	FM_EREPORT_PAYLOAD_ZFS_ZIO_STAGE	"zio_stage"
+#define	FM_EREPORT_PAYLOAD_ZFS_ZIO_PRIORITY	"zio_priority"
 #define	FM_EREPORT_PAYLOAD_ZFS_ZIO_PIPELINE	"zio_pipeline"
 #define	FM_EREPORT_PAYLOAD_ZFS_ZIO_DELAY	"zio_delay"
 #define	FM_EREPORT_PAYLOAD_ZFS_ZIO_TIMESTAMP	"zio_timestamp"

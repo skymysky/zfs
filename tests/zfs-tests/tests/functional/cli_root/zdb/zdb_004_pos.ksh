@@ -13,6 +13,7 @@
 
 #
 # Copyright (c) 2017 by Lawrence Livermore National Security, LLC.
+# Copyright (c) 2020 by Delphix. All rights reserved.
 #
 
 . $STF_SUITE/include/libtest.shlib
@@ -40,22 +41,36 @@ function cleanup
 	for DISK in $DISKS; do
 		zpool labelclear -f $DEV_RDSKDIR/$DISK
 	done
+	if is_freebsd; then
+		log_must sysctl kern.geom.debugflags=$saved_debugflags
+	fi
 }
+
+if is_freebsd; then
+	# FreeBSD won't allow writing to an in-use device without this set
+	saved_debugflags=$(sysctl -n kern.geom.debugflags)
+	log_must sysctl kern.geom.debugflags=16
+fi
 
 verify_runnable "global"
 verify_disk_count "$DISKS" 2
 set -A DISK $DISKS
+WHOLE_DISK=${DISK[0]}
 
 default_mirror_setup_noexit $DISKS
-log_must zpool offline $TESTPOOL ${DISK[0]}
+DEVS=$(get_pool_devices ${TESTPOOL} ${DEV_RDSKDIR})
+[[ -n $DEVS ]] && set -A DISK $DEVS
+
+log_must zpool offline $TESTPOOL $WHOLE_DISK
 log_must dd if=/dev/urandom of=$TESTDIR/testfile bs=1K count=2
 log_must zpool export $TESTPOOL
+
 log_must dd if=$DEV_RDSKDIR/${DISK[0]} of=$DEV_RDSKDIR/${DISK[1]} bs=1K count=256 conv=notrunc
 
-ubs=$(zdb -lu $DEV_RDSKDIR/${DISK[1]} | grep -e LABEL -e Uberblock -e 'labels = ')
+ubs=$(zdb -lu ${DISK[1]} | grep -e LABEL -e Uberblock -e 'labels = ')
 log_note "vdev 1: ubs $ubs"
 
-ub_dump_counts=$(zdb -lu $DEV_RDSKDIR/${DISK[1]} | \
+ub_dump_counts=$(zdb -lu ${DISK[1]} | \
 	awk '	/LABEL/	{label=$NF; blocks[label]=0};
 		/Uberblock/ {blocks[label]++};
 		END {print blocks[0],blocks[1],blocks[2],blocks[3]}')

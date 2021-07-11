@@ -61,7 +61,7 @@ function cleanup
 	cleanup_devices $vdisks $sdisks
 }
 
-function verify_assertion #disks
+function verify_assertion # disks
 {
 	typeset targets=$1
 
@@ -79,38 +79,12 @@ log_onexit cleanup
 set -A vdevs "" "mirror" "raidz" "raidz1" "raidz2"
 
 typeset -i i=0
-
 while (( i < ${#vdevs[*]} )); do
+	typeset spare="spare $sdisks"
 
-	typeset cyl=""
-	for num in 0 1 2 3 ; do
-		eval typeset slice=\${FS_SIDE$num}
-		disk=${slice%${SLICE_PREFIX}*}
-		slice=${slice##*${SLICE_PREFIX}}
-		log_must set_partition $slice "$cyl" $FS_SIZE $disk
-		cyl=$(get_endslice $disk $slice)
-	done
-
-	if [[ -n $SINGLE_DISK && -n ${vdevs[i]} ]]; then
-		(( i = i + 1 ))
-		continue
-	fi
-
-	create_pool $TESTPOOL1 ${vdevs[i]} $vslices spare $sslices
-	log_must zpool export $TESTPOOL1
-	verify_assertion "$vdisks $sdisks"
-
-	if [[ ( $FS_DISK0 == $FS_DISK2 ) && -n ${vdevs[i]} ]]; then
-		(( i = i + 1 ))
-		continue
-	fi
-
-	if [[ ( $FS_DISK0 == $FS_DISK3 ) && ( ${vdevs[i]} == "raidz2" ) ]]; then
-		(( i = i + 1 ))
-		continue
-	fi
-
-	create_pool $TESTPOOL1 ${vdevs[i]} $vdisks spare $sdisks
+	# If this is for raidz2, use 3 disks for the pool.
+	[[ ${vdevs[i]} = "raidz2" ]] && spare="$sdisks"
+	create_pool $TESTPOOL1 ${vdevs[i]} $vdisks $spare
 	log_must zpool export $TESTPOOL1
 	verify_assertion "$vdisks $sdisks"
 

@@ -33,6 +33,7 @@
  */
 
 #include <sys/zfs_context.h>
+#include <sys/zio_compress.h>
 
 static int real_LZ4_compress(const char *source, char *dest, int isize,
     int osize);
@@ -63,10 +64,10 @@ lz4_compress_zfs(void *s_start, void *d_start, size_t s_len,
 		return (s_len);
 
 	/*
-	 * Encode the compressed buffer size at the start. We'll need this in
-	 * decompression to counter the effects of padding which might be
-	 * added to the compressed buffer and which, if unhandled, would
-	 * confuse the hell out of our decompression function.
+	 * The exact compressed size is needed by the decompression routine,
+	 * so it is stored at the start of the buffer. Note that this may be
+	 * less than the compressed block size, which is rounded up to a
+	 * multiple of 1<<ashift.
 	 */
 	*(uint32_t *)dest = BE_32(bufsiz);
 
@@ -207,7 +208,7 @@ lz4_decompress_zfs(void *s_start, void *d_start, size_t s_len,
  * Little Endian or Big Endian?
  * Note: overwrite the below #define if you know your architecture endianness.
  */
-#if defined(_BIG_ENDIAN)
+#if defined(_ZFS_BIG_ENDIAN)
 #define	LZ4_BIG_ENDIAN 1
 #else
 /*
@@ -383,7 +384,7 @@ static inline int
 LZ4_NbCommonBytes(register U64 val)
 {
 #if defined(LZ4_BIG_ENDIAN)
-#if defined(__GNUC__) && (GCC_VERSION >= 304) && \
+#if ((defined(__GNUC__) && (GCC_VERSION >= 304)) || defined(__clang__)) && \
 	!defined(LZ4_FORCE_SW_BITCOUNT)
 	return (__builtin_clzll(val) >> 3);
 #else
@@ -404,7 +405,7 @@ LZ4_NbCommonBytes(register U64 val)
 	return (r);
 #endif
 #else
-#if defined(__GNUC__) && (GCC_VERSION >= 304) && \
+#if ((defined(__GNUC__) && (GCC_VERSION >= 304)) || defined(__clang__)) && \
 	!defined(LZ4_FORCE_SW_BITCOUNT)
 	return (__builtin_ctzll(val) >> 3);
 #else
@@ -426,7 +427,7 @@ static inline int
 LZ4_NbCommonBytes(register U32 val)
 {
 #if defined(LZ4_BIG_ENDIAN)
-#if defined(__GNUC__) && (GCC_VERSION >= 304) && \
+#if ((defined(__GNUC__) && (GCC_VERSION >= 304)) || defined(__clang__)) && \
 	!defined(LZ4_FORCE_SW_BITCOUNT)
 	return (__builtin_clz(val) >> 3);
 #else

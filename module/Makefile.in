@@ -1,54 +1,86 @@
-subdir-m += avl
-subdir-m += nvpair
-subdir-m += unicode
-subdir-m += zcommon
-subdir-m += zfs
-subdir-m += icp
+include Kbuild
 
 INSTALL_MOD_DIR ?= extra
 
-ZFS_MODULE_CFLAGS += -include @SPL_OBJ@/spl_config.h
-ZFS_MODULE_CFLAGS += -include @abs_top_builddir@/zfs_config.h
-ZFS_MODULE_CFLAGS += -I@abs_top_srcdir@/include -I@SPL@/include -I@SPL@
-@CONFIG_QAT_TRUE@ZFS_MODULE_CFLAGS += -I@QAT_SRC@/include
-@CONFIG_QAT_TRUE@KBUILD_EXTRA_SYMBOLS += @QAT_SYMBOLS@
-export ZFS_MODULE_CFLAGS
+SUBDIR_TARGETS = icp lua zstd
 
-SUBDIR_TARGETS = icp
+all: modules
+distclean maintainer-clean: clean
+install: modules_install
+uninstall: modules_uninstall
+check:
 
-modules:
-	@# Make the exported SPL symbols available to these modules.
-	@# They may be in the root of SPL_OBJ when building against
-	@# installed devel headers, or they may be in the module
-	@# subdirectory when building against the spl source tree.
-	@if [ -f @SPL_OBJ@/@SPL_SYMBOLS@ ]; then \
-		cp @SPL_OBJ@/@SPL_SYMBOLS@ .; \
-	elif [ -f @SPL_OBJ@/module/@SPL_SYMBOLS@ ]; then \
-		cp @SPL_OBJ@/module/@SPL_SYMBOLS@ .; \
-	else \
-		echo -e "\n" \
-		"*** Missing spl symbols ensure you have built the spl:\n" \
-		"*** - @SPL_OBJ@/@SPL_SYMBOLS@, or\n" \
-		"*** - @SPL_OBJ@/module/@SPL_SYMBOLS@\n"; \
-		exit 1; \
-	fi
+.PHONY: all distclean maintainer-clean install uninstall check distdir \
+	modules modules-Linux modules-FreeBSD modules-unknown \
+	clean clean-Linux clean-FreeBSD \
+	modules_install modules_install-Linux modules_install-FreeBSD \
+	modules_uninstall modules_uninstall-Linux modules_uninstall-FreeBSD \
+	cppcheck cppcheck-Linux cppcheck-FreeBSD
+
+# For FreeBSD, use debug options from ./configure if not overridden.
+export WITH_DEBUG ?= @WITH_DEBUG@
+export WITH_INVARIANTS ?= @WITH_INVARIANTS@
+
+# Filter out options that FreeBSD make doesn't understand
+getflags = ( \
+set -- \
+  $(filter-out --%,$(firstword $(MFLAGS))) \
+  $(filter -I%,$(MFLAGS)) \
+  $(filter -j%,$(MFLAGS)); \
+fmakeflags=""; \
+while getopts :deiI:j:knqrstw flag; do \
+  case $$flag in \
+    \?) :;; \
+    :) if [ $$OPTARG = "j" ]; then \
+	 ncpus=$$(sysctl -n kern.smp.cpus 2>/dev/null || :); \
+	 if [ -n "$$ncpus" ]; then fmakeflags="$$fmakeflags -j$$ncpus"; fi; \
+       fi;; \
+    d) fmakeflags="$$fmakeflags -dA";; \
+    *) fmakeflags="$$fmakeflags -$$flag$$OPTARG";; \
+  esac; \
+done; \
+echo $$fmakeflags \
+)
+FMAKEFLAGS = -C @abs_srcdir@ -f Makefile.bsd $(shell $(getflags))
+
+ifneq (@abs_srcdir@,@abs_builddir@)
+FMAKEFLAGS += MAKEOBJDIR=@abs_builddir@
+endif
+
+FMAKE = env -u MAKEFLAGS make $(FMAKEFLAGS)
+
+modules-Linux:
 	list='$(SUBDIR_TARGETS)'; for targetdir in $$list; do \
 		$(MAKE) -C $$targetdir; \
 	done
-	$(MAKE) -C @LINUX_OBJ@ SUBDIRS=`pwd` @KERNELMAKE_PARAMS@ CONFIG_ZFS=m $@
+	$(MAKE) -C @LINUX_OBJ@ M=`pwd` @KERNEL_MAKE@ CONFIG_ZFS=m modules
 
-clean:
+modules-FreeBSD:
+	+$(FMAKE)
+
+modules-unknown:
+	@true
+
+modules: modules-@ac_system@
+
+clean-Linux:
 	@# Only cleanup the kernel build directories when CONFIG_KERNEL
 	@# is defined.  This indicates that kernel modules should be built.
-@CONFIG_KERNEL_TRUE@	$(MAKE) -C @LINUX_OBJ@ SUBDIRS=`pwd` @KERNELMAKE_PARAMS@ $@
+@CONFIG_KERNEL_TRUE@	$(MAKE) -C @LINUX_OBJ@ M=`pwd` @KERNEL_MAKE@ clean
 
-	if [ -f @SPL_SYMBOLS@ ]; then $(RM) @SPL_SYMBOLS@; fi
 	if [ -f @LINUX_SYMBOLS@ ]; then $(RM) @LINUX_SYMBOLS@; fi
 	if [ -f Module.markers ]; then $(RM) Module.markers; fi
 
-modules_install:
+	find . -name '*.ur-safe' -type f -print | xargs $(RM)
+
+clean-FreeBSD:
+	+$(FMAKE) clean
+
+clean: clean-@ac_system@
+
+modules_install-Linux:
 	@# Install the kernel modules
-	$(MAKE) -C @LINUX_OBJ@ SUBDIRS=`pwd` $@ \
+	$(MAKE) -C @LINUX_OBJ@ M=`pwd` modules_install \
 		INSTALL_MOD_PATH=$(DESTDIR)$(INSTALL_MOD_PATH) \
 		INSTALL_MOD_DIR=$(INSTALL_MOD_DIR) \
 		KERNELRELEASE=@LINUX_VERSION@
@@ -62,21 +94,47 @@ modules_install:
 		depmod -ae -F $$sysmap @LINUX_VERSION@; \
 	fi
 
-modules_uninstall:
+modules_install-FreeBSD:
+	@# Install the kernel modules
+	+$(FMAKE) install
+
+modules_install: modules_install-@ac_system@
+
+modules_uninstall-Linux:
 	@# Uninstall the kernel modules
-	kmoddir=$(DESTDIR)$(INSTALL_MOD_PATH)/lib/modules/@LINUX_VERSION@
-	list='$(subdir-m)'; for subdir in $$list; do \
-		$(RM) -R $$kmoddir/$(INSTALL_MOD_DIR)/$$subdir; \
+	kmoddir=$(DESTDIR)$(INSTALL_MOD_PATH)/lib/modules/@LINUX_VERSION@; \
+	for objdir in $(ZFS_MODULES); do \
+		$(RM) -R $$kmoddir/$(INSTALL_MOD_DIR)/$$objdir; \
 	done
+
+modules_uninstall-FreeBSD:
+	@false
+
+modules_uninstall: modules_uninstall-@ac_system@
+
+cppcheck-Linux:
+	@CPPCHECK@ -j@CPU_COUNT@ --std=c99 --quiet --force --error-exitcode=2 \
+		--inline-suppr --suppress=noValidConfiguration \
+		--enable=warning,information -D_KERNEL \
+		--include=@LINUX_OBJ@/include/generated/autoconf.h \
+		--include=@top_srcdir@/zfs_config.h \
+		--config-exclude=@LINUX_OBJ@/include \
+		-I @LINUX_OBJ@/include \
+		-I @top_srcdir@/include/os/linux/kernel \
+		-I @top_srcdir@/include/os/linux/spl \
+		-I @top_srcdir@/include/os/linux/zfs \
+		-I @top_srcdir@/include \
+		avl icp lua nvpair spl unicode zcommon zfs zstd os/linux
+
+cppcheck-FreeBSD:
+	@true
+
+cppcheck: cppcheck-@ac_system@
 
 distdir:
-	list='$(subdir-m)'; for subdir in $$list; do \
-		(cd @top_srcdir@/module && find $$subdir -name '*.c' -o -name '*.h' -o -name '*.S' |\
-		xargs cp --parents -t $$distdir); \
-	done
-
-distclean maintainer-clean: clean
-install: modules_install
-uninstall: modules_uninstall
-all: modules
-check:
+	(cd @srcdir@ && find $(ZFS_MODULES) os -name '*.[chS]') | \
+	while read path; do \
+		mkdir -p $$distdir/$${path%/*}; \
+		cp @srcdir@/$$path $$distdir/$$path; \
+	done; \
+	cp @srcdir@/Makefile.bsd $$distdir/Makefile.bsd

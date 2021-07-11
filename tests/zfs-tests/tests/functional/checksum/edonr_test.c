@@ -36,10 +36,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <sys/note.h>
 #include <sys/time.h>
-#define NOTE(x) 
-typedef enum boolean { B_FALSE, B_TRUE } boolean_t;
-typedef	unsigned long long	u_longlong_t;
+#include <sys/stdtypes.h>
 
 /*
  * Test messages from:

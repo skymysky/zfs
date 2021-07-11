@@ -60,13 +60,13 @@
 
 verify_runnable "both"
 
-if is_linux; then
+if is_linux || is_freebsd; then
 	log_unsupported "Requires pfexec command"
 fi
 
 log_assert "The RBAC profile \"ZFS File System Management\" works"
 
-ZFS_USER=$(cat /tmp/zfs-privs-test-user.txt)
+ZFS_USER=$(<$TEST_BASE_DIR/zfs-privs-test-user.txt)
 
 # Set a $DATASET where we can create child files systems
 if is_global_zone; then

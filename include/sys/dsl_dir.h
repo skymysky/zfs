@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012, 2016 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2018 by Delphix. All rights reserved.
  * Copyright (c) 2014, Joyent, Inc. All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  */
@@ -29,18 +29,20 @@
 #define	_SYS_DSL_DIR_H
 
 #include <sys/dmu.h>
+#include <sys/dsl_deadlist.h>
 #include <sys/dsl_pool.h>
 #include <sys/dsl_synctask.h>
-#include <sys/refcount.h>
+#include <sys/zfs_refcount.h>
 #include <sys/zfs_context.h>
 #include <sys/dsl_crypt.h>
+#include <sys/bplist.h>
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
 
 struct dsl_dataset;
-
+struct zthr;
 /*
  * DD_FIELD_* are strings that are used in the "extensified" dsl_dir zap object.
  * They should be of the format <reverse-dns>:<field>.
@@ -49,6 +51,7 @@ struct dsl_dataset;
 #define	DD_FIELD_FILESYSTEM_COUNT	"com.joyent:filesystem_count"
 #define	DD_FIELD_SNAPSHOT_COUNT		"com.joyent:snapshot_count"
 #define	DD_FIELD_CRYPTO_KEY_OBJ		"com.datto:crypto_key_obj"
+#define	DD_FIELD_LIVELIST		"com.delphix:livelist"
 
 typedef enum dd_used {
 	DD_USED_HEAD,
@@ -106,13 +109,22 @@ struct dsl_dir {
 	/* Protected by dd_lock */
 	kmutex_t dd_lock;
 	list_t dd_props; /* list of dsl_prop_record_t's */
-	timestruc_t dd_snap_cmtime; /* last time snapshot namespace changed */
+	inode_timespec_t dd_snap_cmtime; /* last snapshot namespace change */
 	uint64_t dd_origin_txg;
 
 	/* gross estimate of space used by in-flight tx's */
 	uint64_t dd_tempreserved[TXG_SIZE];
 	/* amount of space we expect to write; == amount of dirty data */
 	int64_t dd_space_towrite[TXG_SIZE];
+
+	dsl_deadlist_t dd_livelist;
+	bplist_t dd_pending_frees;
+	bplist_t dd_pending_allocs;
+
+	kmutex_t dd_activity_lock;
+	kcondvar_t dd_activity_cv;
+	boolean_t dd_activity_cancelled;
+	uint64_t dd_activity_waiters;
 
 	/* protected by dd_lock; keep at end of struct for better locality */
 	char dd_myname[ZFS_MAX_DATASET_NAME_LEN];
@@ -134,6 +146,21 @@ void dsl_dir_name(dsl_dir_t *dd, char *buf);
 int dsl_dir_namelen(dsl_dir_t *dd);
 uint64_t dsl_dir_create_sync(dsl_pool_t *dp, dsl_dir_t *pds,
     const char *name, dmu_tx_t *tx);
+
+uint64_t dsl_dir_get_used(dsl_dir_t *dd);
+uint64_t dsl_dir_get_compressed(dsl_dir_t *dd);
+uint64_t dsl_dir_get_quota(dsl_dir_t *dd);
+uint64_t dsl_dir_get_reservation(dsl_dir_t *dd);
+uint64_t dsl_dir_get_compressratio(dsl_dir_t *dd);
+uint64_t dsl_dir_get_logicalused(dsl_dir_t *dd);
+uint64_t dsl_dir_get_usedsnap(dsl_dir_t *dd);
+uint64_t dsl_dir_get_usedds(dsl_dir_t *dd);
+uint64_t dsl_dir_get_usedrefreserv(dsl_dir_t *dd);
+uint64_t dsl_dir_get_usedchild(dsl_dir_t *dd);
+void dsl_dir_get_origin(dsl_dir_t *dd, char *buf);
+int dsl_dir_get_filesystem_count(dsl_dir_t *dd, uint64_t *count);
+int dsl_dir_get_snapshot_count(dsl_dir_t *dd, uint64_t *count);
+
 void dsl_dir_stats(dsl_dir_t *dd, nvlist_t *nv);
 uint64_t dsl_dir_space_available(dsl_dir_t *dd,
     dsl_dir_t *ancestor, int64_t delta, int ondiskonly);
@@ -153,25 +180,30 @@ int dsl_dir_set_reservation(const char *ddname, zprop_source_t source,
     uint64_t reservation);
 int dsl_dir_activate_fs_ss_limit(const char *);
 int dsl_fs_ss_limit_check(dsl_dir_t *, uint64_t, zfs_prop_t, dsl_dir_t *,
-    cred_t *);
+    cred_t *, proc_t *);
 void dsl_fs_ss_count_adjust(dsl_dir_t *, int64_t, const char *, dmu_tx_t *);
 int dsl_dir_rename(const char *oldname, const char *newname);
 int dsl_dir_transfer_possible(dsl_dir_t *sdd, dsl_dir_t *tdd,
-    uint64_t fs_cnt, uint64_t ss_cnt, uint64_t space, cred_t *);
+    uint64_t fs_cnt, uint64_t ss_cnt, uint64_t space, cred_t *, proc_t *);
 boolean_t dsl_dir_is_clone(dsl_dir_t *dd);
 void dsl_dir_new_refreservation(dsl_dir_t *dd, struct dsl_dataset *ds,
     uint64_t reservation, cred_t *cr, dmu_tx_t *tx);
 void dsl_dir_snap_cmtime_update(dsl_dir_t *dd);
-timestruc_t dsl_dir_snap_cmtime(dsl_dir_t *dd);
+inode_timespec_t dsl_dir_snap_cmtime(dsl_dir_t *dd);
 void dsl_dir_set_reservation_sync_impl(dsl_dir_t *dd, uint64_t value,
     dmu_tx_t *tx);
 void dsl_dir_zapify(dsl_dir_t *dd, dmu_tx_t *tx);
 boolean_t dsl_dir_is_zapified(dsl_dir_t *dd);
+void dsl_dir_livelist_open(dsl_dir_t *dd, uint64_t obj);
+void dsl_dir_livelist_close(dsl_dir_t *dd);
+void dsl_dir_remove_livelist(dsl_dir_t *dd, dmu_tx_t *tx, boolean_t total);
+int dsl_dir_wait(dsl_dir_t *dd, dsl_dataset_t *ds, zfs_wait_activity_t activity,
+    boolean_t *waited);
+void dsl_dir_cancel_waiters(dsl_dir_t *dd);
 
 /* internal reserved dir name */
 #define	MOS_DIR_NAME "$MOS"
 #define	ORIGIN_DIR_NAME "$ORIGIN"
-#define	XLATION_DIR_NAME "$XLATION"
 #define	FREE_DIR_NAME "$FREE"
 #define	LEAK_DIR_NAME "$LEAK"
 

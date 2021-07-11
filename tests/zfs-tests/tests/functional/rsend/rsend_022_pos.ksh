@@ -25,7 +25,7 @@
 #
 # Strategy:
 # 1. Bookmark a ZFS snapshot
-# 2. Destroy the ZFS sanpshot
+# 2. Destroy the ZFS snapshot
 # 3. Destroy the filesystem for the receive
 # 4. Verify receive of the full send stream
 # 5. Start an incremental ZFS send of the ZFS bookmark, redirect output to a
@@ -37,11 +37,6 @@
 #
 
 verify_runnable "both"
-
-# See issue: https://github.com/zfsonlinux/zfs/issues/5654
-if is_32bit; then
-	log_unsupported "Test case fails on 32-bit systems"
-fi
 
 log_assert "Verify resumability of an incremental ZFS send/receive with ZFS " \
     "bookmarks"

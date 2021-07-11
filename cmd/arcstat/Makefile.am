@@ -1,1 +1,5 @@
-dist_bin_SCRIPTS = arcstat.py
+include $(top_srcdir)/config/Substfiles.am
+
+bin_SCRIPTS = arcstat
+
+SUBSTFILES += $(bin_SCRIPTS)

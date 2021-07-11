@@ -31,10 +31,13 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifndef __FreeBSD__
 #include <sys/xattr.h>
+#endif
 #include <utime.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <libzutil.h>
 #include <unistd.h>
 #include <strings.h>
 #include <errno.h>
@@ -147,22 +150,18 @@ static int
 do_link(const char *pfile)
 {
 	int ret = 0;
-	char link_file[BUFSIZ] = { 0 };
-	char pfile_copy[BUFSIZ] = { 0 };
-	char *dname;
+	char link_file[BUFSIZ + 16] = { 0 };
 
 	if (pfile == NULL) {
 		return (-1);
 	}
 
-	strncpy(pfile_copy, pfile, sizeof (pfile_copy));
-	pfile_copy[sizeof (pfile_copy) - 1] = '\0';
 	/*
 	 * Figure out source file directory name, and create
 	 * the link file in the same directory.
 	 */
-	dname = dirname((char *)pfile_copy);
-	(void) snprintf(link_file, BUFSIZ, "%s/%s", dname, "link_file");
+	(void) snprintf(link_file, sizeof (link_file),
+	    "%.*s/%s", (int)zfs_dirnamelen(pfile), pfile, "link_file");
 
 	if (link(pfile, link_file) == -1) {
 		(void) fprintf(stderr, "link(%s, %s) failed with errno %d\n",
@@ -251,6 +250,7 @@ do_chown(const char *pfile)
 	return (ret);
 }
 
+#ifndef __FreeBSD__
 static int
 do_xattr(const char *pfile)
 {
@@ -268,6 +268,7 @@ do_xattr(const char *pfile)
 	}
 	return (ret);
 }
+#endif
 
 static void
 cleanup(void)
@@ -289,7 +290,9 @@ static timetest_t timetest_table[] = {
 	{ ST_CTIME,	"st_ctime",	do_chown 	},
 	{ ST_CTIME,	"st_ctime",	do_link		},
 	{ ST_CTIME,	"st_ctime",	do_utime	},
+#ifndef __FreeBSD__
 	{ ST_CTIME,	"st_ctime",	do_xattr	},
+#endif
 };
 
 #define	NCOMMAND (sizeof (timetest_table) / sizeof (timetest_table[0]))
@@ -315,7 +318,7 @@ main(int argc, char *argv[])
 	(void) snprintf(tfile, sizeof (tfile), "%s/%s", penv[0], penv[1]);
 
 	/*
-	 * If the test file is exists, remove it first.
+	 * If the test file exists, remove it first.
 	 */
 	if (access(tfile, F_OK) == 0) {
 		(void) unlink(tfile);

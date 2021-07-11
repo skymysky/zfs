@@ -21,11 +21,11 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2010 Nexenta Systems, Inc. All rights reserved.
- * Copyright (c) 2013 by Delphix. All rights reserved.
+ * Copyright (c) 2013, 2015 by Delphix. All rights reserved.
  */
 
 #ifndef	_ZFS_DELEG_H
-#define	_ZFS_DELEG_H
+#define	_ZFS_DELEG_H extern __attribute__((visibility("default")))
 
 #include <sys/fs/zfs.h>
 
@@ -73,6 +73,10 @@ typedef enum {
 	ZFS_DELEG_NOTE_BOOKMARK,
 	ZFS_DELEG_NOTE_LOAD_KEY,
 	ZFS_DELEG_NOTE_CHANGE_KEY,
+	ZFS_DELEG_NOTE_PROJECTUSED,
+	ZFS_DELEG_NOTE_PROJECTQUOTA,
+	ZFS_DELEG_NOTE_PROJECTOBJUSED,
+	ZFS_DELEG_NOTE_PROJECTOBJQUOTA,
 	ZFS_DELEG_NOTE_NONE
 } zfs_deleg_note_t;
 
@@ -81,12 +85,12 @@ typedef struct zfs_deleg_perm_tab {
 	zfs_deleg_note_t z_note;
 } zfs_deleg_perm_tab_t;
 
-extern zfs_deleg_perm_tab_t zfs_deleg_perm_tab[];
+_ZFS_DELEG_H zfs_deleg_perm_tab_t zfs_deleg_perm_tab[];
 
-int zfs_deleg_verify_nvlist(nvlist_t *nvlist);
-void zfs_deleg_whokey(char *attr, zfs_deleg_who_type_t type,
+_ZFS_DELEG_H int zfs_deleg_verify_nvlist(nvlist_t *nvlist);
+_ZFS_DELEG_H void zfs_deleg_whokey(char *attr, zfs_deleg_who_type_t type,
     char checkflag, void *data);
-const char *zfs_deleg_canonicalize_perm(const char *perm);
+_ZFS_DELEG_H const char *zfs_deleg_canonicalize_perm(const char *perm);
 
 #ifdef	__cplusplus
 }

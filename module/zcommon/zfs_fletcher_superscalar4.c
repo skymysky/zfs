@@ -41,10 +41,11 @@
  * SOFTWARE.
  */
 
+#include <sys/param.h>
 #include <sys/byteorder.h>
 #include <sys/spa_checksum.h>
+#include <sys/strings.h>
 #include <zfs_fletcher.h>
-#include <strings.h>
 
 static void
 fletcher_4_superscalar4_init(fletcher_4_ctx_t *ctx)

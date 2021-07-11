@@ -34,7 +34,7 @@
 #ifndef _CRYPTO_EDONR_BYTEORDER_H
 #define	_CRYPTO_EDONR_BYTEORDER_H
 
-
+#include <sys/sysmacros.h>
 #include <sys/param.h>
 
 #if defined(__BYTE_ORDER)
@@ -52,10 +52,10 @@
 #endif /* __BYTE_ORDER || BYTE_ORDER */
 
 #if !defined(MACHINE_IS_BIG_ENDIAN) && !defined(MACHINE_IS_LITTLE_ENDIAN)
-#if defined(_BIG_ENDIAN) || defined(_MIPSEB)
+#if defined(_ZFS_BIG_ENDIAN) || defined(_MIPSEB)
 #define	MACHINE_IS_BIG_ENDIAN
 #endif
-#if defined(_LITTLE_ENDIAN) || defined(_MIPSEL)
+#if defined(_ZFS_LITTLE_ENDIAN) || defined(_MIPSEL)
 #define	MACHINE_IS_LITTLE_ENDIAN
 #endif
 #endif /* !MACHINE_IS_BIG_ENDIAN && !MACHINE_IS_LITTLE_ENDIAN */

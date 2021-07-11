@@ -23,7 +23,7 @@
  * Use is subject to license terms.
  */
 /*
- * Copyright (c) 2013, 2015 by Delphix. All rights reserved.
+ * Copyright (c) 2013, 2019 by Delphix. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -57,11 +57,11 @@ space_reftree_compare(const void *x1, const void *x2)
 	const space_ref_t *sr1 = (const space_ref_t *)x1;
 	const space_ref_t *sr2 = (const space_ref_t *)x2;
 
-	int cmp = AVL_CMP(sr1->sr_offset, sr2->sr_offset);
+	int cmp = TREE_CMP(sr1->sr_offset, sr2->sr_offset);
 	if (likely(cmp))
 		return (cmp);
 
-	return (AVL_PCMP(sr1, sr2));
+	return (TREE_PCMP(sr1, sr2));
 }
 
 void
@@ -109,12 +109,13 @@ space_reftree_add_seg(avl_tree_t *t, uint64_t start, uint64_t end,
 void
 space_reftree_add_map(avl_tree_t *t, range_tree_t *rt, int64_t refcnt)
 {
-	range_seg_t *rs;
+	zfs_btree_index_t where;
 
-	ASSERT(MUTEX_HELD(rt->rt_lock));
-
-	for (rs = avl_first(&rt->rt_root); rs; rs = AVL_NEXT(&rt->rt_root, rs))
-		space_reftree_add_seg(t, rs->rs_start, rs->rs_end, refcnt);
+	for (range_seg_t *rs = zfs_btree_first(&rt->rt_root, &where); rs; rs =
+	    zfs_btree_next(&rt->rt_root, &where, &where)) {
+		space_reftree_add_seg(t, rs_get_start(rs, rt), rs_get_end(rs,
+		    rt),  refcnt);
+	}
 }
 
 /*
@@ -127,8 +128,6 @@ space_reftree_generate_map(avl_tree_t *t, range_tree_t *rt, int64_t minref)
 	uint64_t start = -1ULL;
 	int64_t refcnt = 0;
 	space_ref_t *sr;
-
-	ASSERT(MUTEX_HELD(rt->rt_lock));
 
 	range_tree_vacate(rt, NULL, NULL);
 
