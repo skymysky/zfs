@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
@@ -25,10 +16,9 @@
 
 #include <errno.h>
 #include <libgen.h>
-#include <libintl.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
+#include <string.h>
 #include <ctype.h>
 
 #include "zpool_util.h"
@@ -50,6 +40,22 @@ safe_malloc(size_t size)
 }
 
 /*
+ * Utility function to guarantee realloc() success.
+ */
+void *
+safe_realloc(void *from, size_t size)
+{
+	void *data;
+
+	if ((data = realloc(from, size)) == NULL) {
+		(void) fprintf(stderr, "internal error: out of memory\n");
+		exit(1);
+	}
+
+	return (data);
+}
+
+/*
  * Display an out of memory error message and abort the current program.
  */
 void
@@ -57,7 +63,7 @@ zpool_no_memory(void)
 {
 	assert(errno == ENOMEM);
 	(void) fprintf(stderr,
-	    gettext("internal error: out of memory\n"));
+	    "internal error: out of memory\n");
 	exit(1);
 }
 
@@ -96,44 +102,4 @@ array64_max(uint64_t array[], unsigned int len)
 		max = MAX(max, array[i]);
 
 	return (max);
-}
-
-/*
- * Return 1 if "str" is a number string, 0 otherwise.  Works for integer and
- * floating point numbers.
- */
-int
-isnumber(char *str)
-{
-	for (; *str; str++)
-		if (!(isdigit(*str) || (*str == '.')))
-			return (0);
-
-	return (1);
-}
-
-/*
- * Find highest one bit set.
- * Returns bit number + 1 of highest bit that is set, otherwise returns 0.
- */
-int
-highbit64(uint64_t i)
-{
-	if (i == 0)
-		return (0);
-
-	return (NBBY * sizeof (uint64_t) - __builtin_clzll(i));
-}
-
-/*
- * Find lowest one bit set.
- * Returns bit number + 1 of lowest bit that is set, otherwise returns 0.
- */
-int
-lowbit64(uint64_t i)
-{
-	if (i == 0)
-		return (0);
-
-	return (__builtin_ffsll(i));
 }

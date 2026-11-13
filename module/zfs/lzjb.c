@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 
 /*
@@ -37,6 +28,7 @@
  */
 
 #include <sys/zfs_context.h>
+#include <sys/zio_compress.h>
 
 #define	MATCH_BITS	6
 #define	MATCH_MIN	3
@@ -44,10 +36,11 @@
 #define	OFFSET_MASK	((1 << (16 - MATCH_BITS)) - 1)
 #define	LEMPEL_SIZE	1024
 
-/*ARGSUSED*/
-size_t
-lzjb_compress(void *s_start, void *d_start, size_t s_len, size_t d_len, int n)
+static size_t
+zfs_lzjb_compress_buf(void *s_start, void *d_start, size_t s_len,
+    size_t d_len, int n)
 {
+	(void) n;
 	uchar_t *src = s_start;
 	uchar_t *dst = d_start;
 	uchar_t *cpy;
@@ -99,10 +92,11 @@ lzjb_compress(void *s_start, void *d_start, size_t s_len, size_t d_len, int n)
 	return (dst - (uchar_t *)d_start);
 }
 
-/*ARGSUSED*/
-int
-lzjb_decompress(void *s_start, void *d_start, size_t s_len, size_t d_len, int n)
+static int
+zfs_lzjb_decompress_buf(void *s_start, void *d_start,
+    size_t s_len, size_t d_len, int n)
 {
+	(void) s_len, (void) n;
 	uchar_t *src = s_start;
 	uchar_t *dst = d_start;
 	uchar_t *d_end = (uchar_t *)d_start + d_len;
@@ -129,3 +123,6 @@ lzjb_decompress(void *s_start, void *d_start, size_t s_len, size_t d_len, int n)
 	}
 	return (0);
 }
+
+ZFS_COMPRESS_WRAP_DECL(zfs_lzjb_compress)
+ZFS_DECOMPRESS_WRAP_DECL(zfs_lzjb_decompress)

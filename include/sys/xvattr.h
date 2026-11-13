@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 
 /*
@@ -40,6 +31,7 @@
 #define	_SYS_XVATTR_H
 
 #include <sys/vnode.h>
+#include <sys/string.h>
 
 #define	AV_SCANSTAMP_SZ	32		/* length of anti-virus scanstamp */
 
@@ -47,7 +39,7 @@
  * Structure of all optional attributes.
  */
 typedef struct xoptattr {
-	timestruc_t	xoa_createtime;	/* Create time of file */
+	inode_timespec_t xoa_createtime;	/* Create time of file */
 	uint8_t		xoa_archive;
 	uint8_t		xoa_system;
 	uint8_t		xoa_readonly;
@@ -64,6 +56,8 @@ typedef struct xoptattr {
 	uint64_t	xoa_generation;
 	uint8_t		xoa_offline;
 	uint8_t		xoa_sparse;
+	uint8_t		xoa_projinherit;
+	uint64_t	xoa_projid;
 } xoptattr_t;
 
 /*
@@ -169,11 +163,14 @@ typedef struct xvattr {
 #define	XAT0_GEN	0x00004000	/* object generation number */
 #define	XAT0_OFFLINE	0x00008000	/* offline */
 #define	XAT0_SPARSE	0x00010000	/* sparse */
+#define	XAT0_PROJINHERIT	0x00020000	/* Create with parent projid */
+#define	XAT0_PROJID	0x00040000	/* Project ID */
 
 #define	XAT0_ALL_ATTRS	(XAT0_CREATETIME|XAT0_ARCHIVE|XAT0_SYSTEM| \
     XAT0_READONLY|XAT0_HIDDEN|XAT0_NOUNLINK|XAT0_IMMUTABLE|XAT0_APPENDONLY| \
     XAT0_NODUMP|XAT0_OPAQUE|XAT0_AV_QUARANTINED|  XAT0_AV_MODIFIED| \
-    XAT0_AV_SCANSTAMP|XAT0_REPARSE|XATO_GEN|XAT0_OFFLINE|XAT0_SPARSE)
+    XAT0_AV_SCANSTAMP|XAT0_REPARSE|XATO_GEN|XAT0_OFFLINE|XAT0_SPARSE| \
+    XAT0_PROJINHERIT | XAT0_PROJID)
 
 /* Support for XAT_* optional attributes */
 #define	XVA_MASK		0xffffffff	/* Used to mask off 32 bits */
@@ -210,6 +207,8 @@ typedef struct xvattr {
 #define	XAT_GEN			((XAT0_INDEX << XVA_SHFT) | XAT0_GEN)
 #define	XAT_OFFLINE		((XAT0_INDEX << XVA_SHFT) | XAT0_OFFLINE)
 #define	XAT_SPARSE		((XAT0_INDEX << XVA_SHFT) | XAT0_SPARSE)
+#define	XAT_PROJINHERIT		((XAT0_INDEX << XVA_SHFT) | XAT0_PROJINHERIT)
+#define	XAT_PROJID		((XAT0_INDEX << XVA_SHFT) | XAT0_PROJID)
 
 /*
  * The returned attribute map array (xva_rtnattrmap[]) is located past the
@@ -274,7 +273,7 @@ typedef struct xvattr {
 static inline void
 xva_init(xvattr_t *xvap)
 {
-	bzero(xvap, sizeof (xvattr_t));
+	memset(xvap, 0, sizeof (xvattr_t));
 	xvap->xva_mapsize = XVA_MAPSIZE;
 	xvap->xva_magic = XVA_MAGIC;
 	xvap->xva_vattr.va_mask = ATTR_XVATTR;
@@ -302,6 +301,7 @@ xva_getxoptattr(xvattr_t *xvap)
  */
 #define	V_ACE_MASK	0x1	/* mask represents  NFSv4 ACE permissions */
 #define	V_APPEND	0x2	/* want to do append only check */
+#define	V_NAMEDATTR	0x4	/* is a named attribute check */
 
 /*
  * Structure used on VOP_GETSECATTR and VOP_SETSECATTR operations

@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://opensource.org/licenses/CDDL-1.0.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2013 Saso Kiselkov.  All rights reserved.
@@ -24,6 +15,7 @@
  */
 #include <sys/zfs_context.h>
 #include <sys/zio.h>
+#include <sys/zio_checksum.h>
 #include <sys/skein.h>
 
 #include <sys/abd.h>
@@ -40,18 +32,17 @@ skein_incremental(void *buf, size_t size, void *arg)
  * function requires the presence of a ctx_template that should be allocated
  * using abd_checksum_skein_tmpl_init.
  */
-/*ARGSUSED*/
 void
 abd_checksum_skein_native(abd_t *abd, uint64_t size,
     const void *ctx_template, zio_cksum_t *zcp)
 {
-	Skein_512_Ctxt_t	ctx;
+	Skein_512_Ctxt_t ctx;
 
 	ASSERT(ctx_template != NULL);
-	bcopy(ctx_template, &ctx, sizeof (ctx));
+	memcpy(&ctx, ctx_template, sizeof (ctx));
 	(void) abd_iterate_func(abd, 0, size, skein_incremental, &ctx);
 	(void) Skein_512_Final(&ctx, (uint8_t *)zcp);
-	bzero(&ctx, sizeof (ctx));
+	memset(&ctx, 0, sizeof (ctx));
 }
 
 /*
@@ -79,9 +70,8 @@ abd_checksum_skein_byteswap(abd_t *abd, uint64_t size,
 void *
 abd_checksum_skein_tmpl_init(const zio_cksum_salt_t *salt)
 {
-	Skein_512_Ctxt_t	*ctx;
+	Skein_512_Ctxt_t *ctx = kmem_zalloc(sizeof (*ctx), KM_SLEEP);
 
-	ctx = kmem_zalloc(sizeof (*ctx), KM_SLEEP);
 	(void) Skein_512_InitExt(ctx, sizeof (zio_cksum_t) * 8, 0,
 	    salt->zcs_bytes, sizeof (salt->zcs_bytes));
 	return (ctx);
@@ -94,8 +84,8 @@ abd_checksum_skein_tmpl_init(const zio_cksum_salt_t *salt)
 void
 abd_checksum_skein_tmpl_free(void *ctx_template)
 {
-	Skein_512_Ctxt_t	*ctx = ctx_template;
+	Skein_512_Ctxt_t *ctx = ctx_template;
 
-	bzero(ctx, sizeof (*ctx));
+	memset(ctx, 0, sizeof (*ctx));
 	kmem_free(ctx, sizeof (*ctx));
 }

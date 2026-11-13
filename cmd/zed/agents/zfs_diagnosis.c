@@ -1,47 +1,51 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
  * Copyright (c) 2016, Intel Corporation.
+ * Copyright (c) 2023, Klara Inc.
  */
 
 #include <stddef.h>
-#include <strings.h>
-#include <libuutil.h>
+#include <string.h>
 #include <libzfs.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/fs/zfs.h>
 #include <sys/fm/protocol.h>
 #include <sys/fm/fs/zfs.h>
+#include <sys/zio.h>
 
 #include "zfs_agents.h"
 #include "fmd_api.h"
 
 /*
- * Our serd engines are named 'zfs_<pool_guid>_<vdev_guid>_{checksum,io}'.  This
- * #define reserves enough space for two 64-bit hex values plus the length of
- * the longest string.
+ * Default values for the serd engine when processing checksum or io errors. The
+ * semantics are N <events> in T <seconds>.
+ */
+#define	DEFAULT_CHECKSUM_N	10	/* events */
+#define	DEFAULT_CHECKSUM_T	600	/* seconds */
+#define	DEFAULT_IO_N		10	/* events */
+#define	DEFAULT_IO_T		600	/* seconds */
+
+#define	CASE_GC_TIMEOUT_SECS	43200	/* 12 hours */
+
+/*
+ * Our serd engines are named in the following format:
+ *     'zfs_<pool_guid>_<vdev_guid>_{checksum,io,slow_io}'
+ * This #define reserves enough space for two 64-bit hex values plus the
+ * length of the longest string.
  */
 #define	MAX_SERDLEN	(16 * 2 + sizeof ("zfs___checksum"))
 
@@ -55,9 +59,11 @@ typedef struct zfs_case_data {
 	uint64_t	zc_ena;
 	uint64_t	zc_pool_guid;
 	uint64_t	zc_vdev_guid;
+	uint64_t	zc_parent_guid;
 	int		zc_pool_state;
 	char		zc_serd_checksum[MAX_SERDLEN];
 	char		zc_serd_io[MAX_SERDLEN];
+	char		zc_serd_slow_io[MAX_SERDLEN];
 	int		zc_has_remove_timer;
 } zfs_case_data_t;
 
@@ -77,7 +83,7 @@ typedef struct zfs_case {
 	uint32_t	zc_version;
 	zfs_case_data_t	zc_data;
 	fmd_case_t	*zc_case;
-	uu_list_node_t	zc_node;
+	list_node_t	zc_node;
 	id_t		zc_remove_timer;
 	char		*zc_fru;
 	er_timeval_t	zc_when;
@@ -104,21 +110,23 @@ zfs_de_stats_t zfs_stats = {
 	{ "resource_drops", FMD_TYPE_UINT64, "resource related ereports" }
 };
 
-static hrtime_t zfs_remove_timeout;
+/* wait 15 seconds after a removal */
+static hrtime_t zfs_remove_timeout = SEC2NSEC(15);
 
-uu_list_pool_t *zfs_case_pool;
-uu_list_t *zfs_cases;
+static list_t zfs_cases;
 
 #define	ZFS_MAKE_RSRC(type)	\
     FM_RSRC_CLASS "." ZFS_ERROR_CLASS "." type
 #define	ZFS_MAKE_EREPORT(type)	\
     FM_EREPORT_CLASS "." ZFS_ERROR_CLASS "." type
 
+static void zfs_purge_cases(fmd_hdl_t *hdl);
+
 /*
  * Write out the persistent representation of an active case.
  */
 static void
-zfs_case_serialize(fmd_hdl_t *hdl, zfs_case_t *zcp)
+zfs_case_serialize(zfs_case_t *zcp)
 {
 	zcp->zc_data.zc_version = CASE_DATA_VERSION_SERD;
 }
@@ -152,12 +160,79 @@ zfs_case_unserialize(fmd_hdl_t *hdl, fmd_case_t *cp)
 		zcp->zc_remove_timer = fmd_timer_install(hdl, zcp,
 		    NULL, zfs_remove_timeout);
 
-	uu_list_node_init(zcp, &zcp->zc_node, zfs_case_pool);
-	(void) uu_list_insert_before(zfs_cases, NULL, zcp);
+	list_link_init(&zcp->zc_node);
+	list_insert_head(&zfs_cases, zcp);
 
 	fmd_case_setspecific(hdl, cp, zcp);
 
 	return (zcp);
+}
+
+/*
+ * Return count of other unique SERD cases under same vdev parent
+ */
+static uint_t
+zfs_other_serd_cases(fmd_hdl_t *hdl, const zfs_case_data_t *zfs_case)
+{
+	zfs_case_t *zcp;
+	uint_t cases = 0;
+	static hrtime_t next_check = 0;
+
+	/*
+	 * Note that plumbing in some external GC would require adding locking,
+	 * since most of this module code is not thread safe and assumes there
+	 * is only one thread running against the module. So we perform GC here
+	 * inline periodically so that future delay induced faults will be
+	 * possible once the issue causing multiple vdev delays is resolved.
+	 */
+	if (gethrestime_sec() > next_check) {
+		/* Periodically purge old SERD entries and stale cases */
+		fmd_serd_gc(hdl);
+		zfs_purge_cases(hdl);
+		next_check = gethrestime_sec() + CASE_GC_TIMEOUT_SECS;
+	}
+
+	for (zcp = list_head(&zfs_cases); zcp != NULL;
+	    zcp = list_next(&zfs_cases, zcp)) {
+		zfs_case_data_t *zcd = &zcp->zc_data;
+
+		/*
+		 * must be same pool and parent vdev but different leaf vdev
+		 */
+		if (zcd->zc_pool_guid != zfs_case->zc_pool_guid ||
+		    zcd->zc_parent_guid != zfs_case->zc_parent_guid ||
+		    zcd->zc_vdev_guid == zfs_case->zc_vdev_guid) {
+			continue;
+		}
+
+		/*
+		 * A solved case is a vdev that has already been diagnosed
+		 * and faulted.  It stays open for as long as the vdev stays
+		 * faulted, so counting it would keep any other vdev under
+		 * the same parent from ever being faulted.
+		 */
+		if (fmd_case_solved(hdl, zcp->zc_case))
+			continue;
+
+		/*
+		 * Check if there is another active serd case besides zfs_case
+		 *
+		 * Only one serd engine will be assigned to the case
+		 */
+		if (zcd->zc_serd_checksum[0] == zfs_case->zc_serd_checksum[0] &&
+		    fmd_serd_active(hdl, zcd->zc_serd_checksum)) {
+			cases++;
+		}
+		if (zcd->zc_serd_io[0] == zfs_case->zc_serd_io[0] &&
+		    fmd_serd_active(hdl, zcd->zc_serd_io)) {
+			cases++;
+		}
+		if (zcd->zc_serd_slow_io[0] == zfs_case->zc_serd_slow_io[0] &&
+		    fmd_serd_active(hdl, zcd->zc_serd_slow_io)) {
+			cases++;
+		}
+	}
+	return (cases);
 }
 
 /*
@@ -167,20 +242,18 @@ zfs_case_unserialize(fmd_hdl_t *hdl, fmd_case_t *cp)
 static void
 zfs_mark_vdev(uint64_t pool_guid, nvlist_t *vd, er_timeval_t *loaded)
 {
-	uint64_t vdev_guid;
+	uint64_t vdev_guid = 0;
 	uint_t c, children;
 	nvlist_t **child;
 	zfs_case_t *zcp;
-	int ret;
 
-	ret = nvlist_lookup_uint64(vd, ZPOOL_CONFIG_GUID, &vdev_guid);
-	assert(ret == 0);
+	(void) nvlist_lookup_uint64(vd, ZPOOL_CONFIG_GUID, &vdev_guid);
 
 	/*
 	 * Mark any cases associated with this (pool, vdev) pair.
 	 */
-	for (zcp = uu_list_first(zfs_cases); zcp != NULL;
-	    zcp = uu_list_next(zfs_cases, zcp)) {
+	for (zcp = list_head(&zfs_cases); zcp != NULL;
+	    zcp = list_next(&zfs_cases, zcp)) {
 		if (zcp->zc_data.zc_pool_guid == pool_guid &&
 		    zcp->zc_data.zc_vdev_guid == vdev_guid) {
 			zcp->zc_present = B_TRUE;
@@ -210,10 +283,10 @@ zfs_mark_vdev(uint64_t pool_guid, nvlist_t *vd, er_timeval_t *loaded)
 	}
 }
 
-/*ARGSUSED*/
 static int
 zfs_mark_pool(zpool_handle_t *zhp, void *unused)
 {
+	(void) unused;
 	zfs_case_t *zcp;
 	uint64_t pool_guid;
 	uint64_t *tod;
@@ -226,8 +299,8 @@ zfs_mark_pool(zpool_handle_t *zhp, void *unused)
 	/*
 	 * Mark any cases associated with just this pool.
 	 */
-	for (zcp = uu_list_first(zfs_cases); zcp != NULL;
-	    zcp = uu_list_next(zfs_cases, zcp)) {
+	for (zcp = list_head(&zfs_cases); zcp != NULL;
+	    zcp = list_next(&zfs_cases, zcp)) {
 		if (zcp->zc_data.zc_pool_guid == pool_guid &&
 		    zcp->zc_data.zc_vdev_guid == 0)
 			zcp->zc_present = B_TRUE;
@@ -243,8 +316,8 @@ zfs_mark_pool(zpool_handle_t *zhp, void *unused)
 	if (nelem == 2) {
 		loaded.ertv_sec = tod[0];
 		loaded.ertv_nsec = tod[1];
-		for (zcp = uu_list_first(zfs_cases); zcp != NULL;
-		    zcp = uu_list_next(zfs_cases, zcp)) {
+		for (zcp = list_head(&zfs_cases); zcp != NULL;
+		    zcp = list_next(&zfs_cases, zcp)) {
 			if (zcp->zc_data.zc_pool_guid == pool_guid &&
 			    zcp->zc_data.zc_vdev_guid == 0) {
 				zcp->zc_when = loaded;
@@ -253,7 +326,10 @@ zfs_mark_pool(zpool_handle_t *zhp, void *unused)
 	}
 
 	ret = nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE, &vd);
-	assert(ret == 0);
+	if (ret) {
+		zpool_close(zhp);
+		return (-1);
+	}
 
 	zfs_mark_vdev(pool_guid, vd, &loaded);
 
@@ -308,8 +384,7 @@ zpool_find_load_time(zpool_handle_t *zhp, void *arg)
 static void
 zfs_purge_cases(fmd_hdl_t *hdl)
 {
-	zfs_case_t *zcp;
-	uu_list_walk_t *walk;
+	zfs_case_t *zcp, *next;
 	libzfs_handle_t *zhdl = fmd_hdl_getspecific(hdl);
 
 	/*
@@ -329,8 +404,8 @@ zfs_purge_cases(fmd_hdl_t *hdl)
 	/*
 	 * Mark the cases as not present.
 	 */
-	for (zcp = uu_list_first(zfs_cases); zcp != NULL;
-	    zcp = uu_list_next(zfs_cases, zcp))
+	for (zcp = list_head(&zfs_cases); zcp != NULL;
+	    zcp = list_next(&zfs_cases, zcp))
 		zcp->zc_present = B_FALSE;
 
 	/*
@@ -344,12 +419,11 @@ zfs_purge_cases(fmd_hdl_t *hdl)
 	/*
 	 * Remove those cases which were not found.
 	 */
-	walk = uu_list_walk_start(zfs_cases, UU_WALK_ROBUST);
-	while ((zcp = uu_list_walk_next(walk)) != NULL) {
+	for (zcp = list_head(&zfs_cases); zcp != NULL; zcp = next) {
+		next = list_next(&zfs_cases, zcp);
 		if (!zcp->zc_present)
 			fmd_case_close(hdl, zcp->zc_case);
 	}
-	uu_list_walk_end(walk);
 }
 
 /*
@@ -365,14 +439,21 @@ zfs_serd_name(char *buf, uint64_t pool_guid, uint64_t vdev_guid,
 	    (long long unsigned int)vdev_guid, type);
 }
 
+static void
+zfs_case_retire(fmd_hdl_t *hdl, zfs_case_t *zcp)
+{
+	fmd_hdl_debug(hdl, "retiring case");
+
+	fmd_case_close(hdl, zcp->zc_case);
+}
+
 /*
  * Solve a given ZFS case.  This first checks to make sure the diagnosis is
  * still valid, as well as cleaning up any pending timer associated with the
  * case.
  */
 static void
-zfs_case_solve(fmd_hdl_t *hdl, zfs_case_t *zcp, const char *faultname,
-    boolean_t checkunusable)
+zfs_case_solve(fmd_hdl_t *hdl, zfs_case_t *zcp, const char *faultname)
 {
 	nvlist_t *detector, *fault;
 	boolean_t serialize;
@@ -410,7 +491,7 @@ zfs_case_solve(fmd_hdl_t *hdl, zfs_case_t *zcp, const char *faultname,
 		serialize = B_TRUE;
 	}
 	if (serialize)
-		zfs_case_serialize(hdl, zcp);
+		zfs_case_serialize(zcp);
 
 	nvlist_free(detector);
 }
@@ -422,10 +503,10 @@ timeval_earlier(er_timeval_t *a, er_timeval_t *b)
 	    (a->ertv_sec == b->ertv_sec && a->ertv_nsec < b->ertv_nsec));
 }
 
-/*ARGSUSED*/
 static void
 zfs_ereport_when(fmd_hdl_t *hdl, nvlist_t *nvl, er_timeval_t *when)
 {
+	(void) hdl;
 	int64_t *tod;
 	uint_t	nelem;
 
@@ -439,21 +520,50 @@ zfs_ereport_when(fmd_hdl_t *hdl, nvlist_t *nvl, er_timeval_t *when)
 }
 
 /*
+ * Record the specified event in the SERD engine and return a
+ * boolean value indicating whether or not the engine fired as
+ * the result of inserting this event.
+ *
+ * When the pool has similar active cases on other vdevs, then
+ * the fired state is disregarded and the case is retired.
+ */
+static int
+zfs_fm_serd_record(fmd_hdl_t *hdl, const char *name, fmd_event_t *ep,
+    zfs_case_t *zcp, const char *err_type)
+{
+	int fired = fmd_serd_record(hdl, name, ep);
+	int peers = 0;
+
+	if (fired && (peers = zfs_other_serd_cases(hdl, &zcp->zc_data)) > 0) {
+		fmd_hdl_debug(hdl, "pool %llu is tracking %d other %s cases "
+		    "-- skip faulting the vdev %llu",
+		    (u_longlong_t)zcp->zc_data.zc_pool_guid,
+		    peers, err_type,
+		    (u_longlong_t)zcp->zc_data.zc_vdev_guid);
+		zfs_case_retire(hdl, zcp);
+		fired = 0;
+	}
+
+	return (fired);
+}
+
+/*
  * Main fmd entry point.
  */
-/*ARGSUSED*/
 static void
 zfs_fm_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
 {
 	zfs_case_t *zcp, *dcp;
 	int32_t pool_state;
-	uint64_t ena, pool_guid, vdev_guid;
-	er_timeval_t pool_load;
+	uint64_t ena, pool_guid, vdev_guid, parent_guid;
+	uint64_t checksum_n, checksum_t;
+	uint64_t io_n, io_t;
+	er_timeval_t pool_load = {0};
 	er_timeval_t er_when;
 	nvlist_t *detector;
 	boolean_t pool_found = B_FALSE;
 	boolean_t isresource;
-	char *type;
+	const char *type;
 
 	/*
 	 * We subscribe to notifications for vdev or pool removal.  In these
@@ -535,13 +645,16 @@ zfs_fm_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
 	if (nvlist_lookup_uint64(nvl,
 	    FM_EREPORT_PAYLOAD_ZFS_VDEV_GUID, &vdev_guid) != 0)
 		vdev_guid = 0;
+	if (nvlist_lookup_uint64(nvl,
+	    FM_EREPORT_PAYLOAD_ZFS_PARENT_GUID, &parent_guid) != 0)
+		parent_guid = 0;
 	if (nvlist_lookup_uint64(nvl, FM_EREPORT_ENA, &ena) != 0)
 		ena = 0;
 
 	zfs_ereport_when(hdl, nvl, &er_when);
 
-	for (zcp = uu_list_first(zfs_cases); zcp != NULL;
-	    zcp = uu_list_next(zfs_cases, zcp)) {
+	for (zcp = list_head(&zfs_cases); zcp != NULL;
+	    zcp = list_next(&zfs_cases, zcp)) {
 		if (zcp->zc_data.zc_pool_guid == pool_guid) {
 			pool_found = B_TRUE;
 			pool_load = zcp->zc_when;
@@ -610,7 +723,7 @@ zfs_fm_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
 		 */
 		if (isresource) {
 			zfs_stats.resource_drops.fmds_value.ui64++;
-			fmd_hdl_debug(hdl, "discarding '%s for vdev %llu",
+			fmd_hdl_debug(hdl, "discarding '%s' for vdev %llu",
 			    class, vdev_guid);
 			return;
 		}
@@ -621,9 +734,7 @@ zfs_fm_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
 		if (strcmp(class,
 		    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_DATA)) == 0 ||
 		    strcmp(class,
-		    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_CONFIG_CACHE_WRITE)) == 0 ||
-		    strcmp(class,
-		    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_DELAY)) == 0) {
+		    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_CONFIG_CACHE_WRITE)) == 0) {
 			zfs_stats.resource_drops.fmds_value.ui64++;
 			return;
 		}
@@ -647,6 +758,7 @@ zfs_fm_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
 		data.zc_ena = ena;
 		data.zc_pool_guid = pool_guid;
 		data.zc_vdev_guid = vdev_guid;
+		data.zc_parent_guid = parent_guid;
 		data.zc_pool_state = (int)pool_state;
 
 		fmd_buf_write(hdl, cs, CASE_DATA, &data, sizeof (data));
@@ -684,13 +796,16 @@ zfs_fm_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
 			if (zcp->zc_data.zc_has_remove_timer) {
 				fmd_timer_remove(hdl, zcp->zc_remove_timer);
 				zcp->zc_data.zc_has_remove_timer = 0;
-				zfs_case_serialize(hdl, zcp);
+				zfs_case_serialize(zcp);
 			}
 			if (zcp->zc_data.zc_serd_io[0] != '\0')
 				fmd_serd_reset(hdl, zcp->zc_data.zc_serd_io);
 			if (zcp->zc_data.zc_serd_checksum[0] != '\0')
 				fmd_serd_reset(hdl,
 				    zcp->zc_data.zc_serd_checksum);
+			if (zcp->zc_data.zc_serd_slow_io[0] != '\0')
+				fmd_serd_reset(hdl,
+				    zcp->zc_data.zc_serd_slow_io);
 		} else if (fmd_nvl_class_match(hdl, nvl,
 		    ZFS_MAKE_RSRC(FM_RESOURCE_STATECHANGE))) {
 			uint64_t state = 0;
@@ -719,7 +834,11 @@ zfs_fm_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
 	if (fmd_case_solved(hdl, zcp->zc_case))
 		return;
 
-	fmd_hdl_debug(hdl, "error event '%s'", class);
+	if (vdev_guid)
+		fmd_hdl_debug(hdl, "error event '%s', vdev %llu", class,
+		    vdev_guid);
+	else
+		fmd_hdl_debug(hdl, "error event '%s'", class);
 
 	/*
 	 * Determine if we should solve the case and generate a fault.  We solve
@@ -741,26 +860,26 @@ zfs_fm_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
 		 * Pool level fault.  Before solving the case, go through and
 		 * close any open device cases that may be pending.
 		 */
-		for (dcp = uu_list_first(zfs_cases); dcp != NULL;
-		    dcp = uu_list_next(zfs_cases, dcp)) {
+		for (dcp = list_head(&zfs_cases); dcp != NULL;
+		    dcp = list_next(&zfs_cases, dcp)) {
 			if (dcp->zc_data.zc_pool_guid ==
 			    zcp->zc_data.zc_pool_guid &&
 			    dcp->zc_data.zc_vdev_guid != 0)
 				fmd_case_close(hdl, dcp->zc_case);
 		}
 
-		zfs_case_solve(hdl, zcp, "fault.fs.zfs.pool", B_TRUE);
+		zfs_case_solve(hdl, zcp, "fault.fs.zfs.pool");
 	} else if (fmd_nvl_class_match(hdl, nvl,
 	    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_LOG_REPLAY))) {
 		/*
 		 * Pool level fault for reading the intent logs.
 		 */
-		zfs_case_solve(hdl, zcp, "fault.fs.zfs.log_replay", B_TRUE);
+		zfs_case_solve(hdl, zcp, "fault.fs.zfs.log_replay");
 	} else if (fmd_nvl_class_match(hdl, nvl, "ereport.fs.zfs.vdev.*")) {
 		/*
 		 * Device fault.
 		 */
-		zfs_case_solve(hdl, zcp, "fault.fs.zfs.device",  B_TRUE);
+		zfs_case_solve(hdl, zcp, "fault.fs.zfs.device");
 	} else if (fmd_nvl_class_match(hdl, nvl,
 	    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_IO)) ||
 	    fmd_nvl_class_match(hdl, nvl,
@@ -768,9 +887,12 @@ zfs_fm_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
 	    fmd_nvl_class_match(hdl, nvl,
 	    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_IO_FAILURE)) ||
 	    fmd_nvl_class_match(hdl, nvl,
+	    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_DELAY)) ||
+	    fmd_nvl_class_match(hdl, nvl,
 	    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_PROBE_FAILURE))) {
-		char *failmode = NULL;
+		const char *failmode = NULL;
 		boolean_t checkremove = B_FALSE;
+		uint32_t pri = 0;
 
 		/*
 		 * If this is a checksum or I/O error, then toss it into the
@@ -782,30 +904,111 @@ zfs_fm_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
 		if (fmd_nvl_class_match(hdl, nvl,
 		    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_IO))) {
 			if (zcp->zc_data.zc_serd_io[0] == '\0') {
+				if (nvlist_lookup_uint64(nvl,
+				    FM_EREPORT_PAYLOAD_ZFS_VDEV_IO_N,
+				    &io_n) != 0) {
+					io_n = DEFAULT_IO_N;
+				}
+				if (nvlist_lookup_uint64(nvl,
+				    FM_EREPORT_PAYLOAD_ZFS_VDEV_IO_T,
+				    &io_t) != 0) {
+					io_t = DEFAULT_IO_T;
+				}
 				zfs_serd_name(zcp->zc_data.zc_serd_io,
 				    pool_guid, vdev_guid, "io");
 				fmd_serd_create(hdl, zcp->zc_data.zc_serd_io,
-				    fmd_prop_get_int32(hdl, "io_N"),
-				    fmd_prop_get_int64(hdl, "io_T"));
-				zfs_case_serialize(hdl, zcp);
+				    io_n,
+				    SEC2NSEC(io_t));
+				zfs_case_serialize(zcp);
 			}
-			if (fmd_serd_record(hdl, zcp->zc_data.zc_serd_io, ep))
+			if (zfs_fm_serd_record(hdl, zcp->zc_data.zc_serd_io,
+			    ep, zcp, "io error")) {
 				checkremove = B_TRUE;
+			}
+		} else if (fmd_nvl_class_match(hdl, nvl,
+		    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_DELAY))) {
+			uint64_t slow_io_n, slow_io_t;
+
+			/*
+			 * Create a slow io SERD engine when the VDEV has the
+			 * 'vdev_slow_io_n' and 'vdev_slow_io_n' properties.
+			 */
+			if (zcp->zc_data.zc_serd_slow_io[0] == '\0' &&
+			    nvlist_lookup_uint64(nvl,
+			    FM_EREPORT_PAYLOAD_ZFS_VDEV_SLOW_IO_N,
+			    &slow_io_n) == 0 &&
+			    nvlist_lookup_uint64(nvl,
+			    FM_EREPORT_PAYLOAD_ZFS_VDEV_SLOW_IO_T,
+			    &slow_io_t) == 0) {
+				zfs_serd_name(zcp->zc_data.zc_serd_slow_io,
+				    pool_guid, vdev_guid, "slow_io");
+				fmd_serd_create(hdl,
+				    zcp->zc_data.zc_serd_slow_io,
+				    slow_io_n,
+				    SEC2NSEC(slow_io_t));
+				zfs_case_serialize(zcp);
+			}
+			/* Pass event to SERD engine and see if this triggers */
+			if (zcp->zc_data.zc_serd_slow_io[0] != '\0' &&
+			    zfs_fm_serd_record(hdl,
+			    zcp->zc_data.zc_serd_slow_io, ep, zcp, "slow io")) {
+				zfs_case_solve(hdl, zcp,
+				    "fault.fs.zfs.vdev.slow_io");
+			}
 		} else if (fmd_nvl_class_match(hdl, nvl,
 		    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_CHECKSUM))) {
+			uint64_t flags = 0;
+			int32_t flags32 = 0;
+			/*
+			 * We ignore ereports for checksum errors generated by
+			 * scrub/resilver I/O to avoid potentially further
+			 * degrading the pool while it's being repaired.
+			 *
+			 * Note that FM_EREPORT_PAYLOAD_ZFS_ZIO_FLAGS used to
+			 * be int32. To allow newer zed to work on older
+			 * kernels, if we don't find the flags, we look for
+			 * the older ones too.
+			 */
+			if (((nvlist_lookup_uint32(nvl,
+			    FM_EREPORT_PAYLOAD_ZFS_ZIO_PRIORITY, &pri) == 0) &&
+			    (pri == ZIO_PRIORITY_SCRUB ||
+			    pri == ZIO_PRIORITY_REBUILD)) ||
+			    ((nvlist_lookup_uint64(nvl,
+			    FM_EREPORT_PAYLOAD_ZFS_ZIO_FLAGS, &flags) == 0) &&
+			    (flags & (ZIO_FLAG_SCRUB | ZIO_FLAG_RESILVER))) ||
+			    ((nvlist_lookup_int32(nvl,
+			    FM_EREPORT_PAYLOAD_ZFS_ZIO_FLAGS, &flags32) == 0) &&
+			    (flags32 & (ZIO_FLAG_SCRUB | ZIO_FLAG_RESILVER)))) {
+				fmd_hdl_debug(hdl, "ignoring '%s' for "
+				    "scrub/resilver I/O", class);
+				return;
+			}
+
 			if (zcp->zc_data.zc_serd_checksum[0] == '\0') {
+				if (nvlist_lookup_uint64(nvl,
+				    FM_EREPORT_PAYLOAD_ZFS_VDEV_CKSUM_N,
+				    &checksum_n) != 0) {
+					checksum_n = DEFAULT_CHECKSUM_N;
+				}
+				if (nvlist_lookup_uint64(nvl,
+				    FM_EREPORT_PAYLOAD_ZFS_VDEV_CKSUM_T,
+				    &checksum_t) != 0) {
+					checksum_t = DEFAULT_CHECKSUM_T;
+				}
+
 				zfs_serd_name(zcp->zc_data.zc_serd_checksum,
 				    pool_guid, vdev_guid, "checksum");
 				fmd_serd_create(hdl,
 				    zcp->zc_data.zc_serd_checksum,
-				    fmd_prop_get_int32(hdl, "checksum_N"),
-				    fmd_prop_get_int64(hdl, "checksum_T"));
-				zfs_case_serialize(hdl, zcp);
+				    checksum_n,
+				    SEC2NSEC(checksum_t));
+				zfs_case_serialize(zcp);
 			}
-			if (fmd_serd_record(hdl,
-			    zcp->zc_data.zc_serd_checksum, ep)) {
+			if (zfs_fm_serd_record(hdl,
+			    zcp->zc_data.zc_serd_checksum, ep, zcp,
+			    "checksum")) {
 				zfs_case_solve(hdl, zcp,
-				    "fault.fs.zfs.vdev.checksum", B_FALSE);
+				    "fault.fs.zfs.vdev.checksum");
 			}
 		} else if (fmd_nvl_class_match(hdl, nvl,
 		    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_IO_FAILURE)) &&
@@ -815,12 +1018,11 @@ zfs_fm_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
 			if (strncmp(failmode, FM_EREPORT_FAILMODE_CONTINUE,
 			    strlen(FM_EREPORT_FAILMODE_CONTINUE)) == 0) {
 				zfs_case_solve(hdl, zcp,
-				    "fault.fs.zfs.io_failure_continue",
-				    B_FALSE);
+				    "fault.fs.zfs.io_failure_continue");
 			} else if (strncmp(failmode, FM_EREPORT_FAILMODE_WAIT,
 			    strlen(FM_EREPORT_FAILMODE_WAIT)) == 0) {
 				zfs_case_solve(hdl, zcp,
-				    "fault.fs.zfs.io_failure_wait", B_FALSE);
+				    "fault.fs.zfs.io_failure_wait");
 			}
 		} else if (fmd_nvl_class_match(hdl, nvl,
 		    ZFS_MAKE_EREPORT(FM_EREPORT_ZFS_PROBE_FAILURE))) {
@@ -842,7 +1044,7 @@ zfs_fm_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
 			    zfs_remove_timeout);
 			if (!zcp->zc_data.zc_has_remove_timer) {
 				zcp->zc_data.zc_has_remove_timer = 1;
-				zfs_case_serialize(hdl, zcp);
+				zfs_case_serialize(zcp);
 			}
 		}
 	}
@@ -852,14 +1054,13 @@ zfs_fm_recv(fmd_hdl_t *hdl, fmd_event_t *ep, nvlist_t *nvl, const char *class)
  * The timeout is fired when we diagnosed an I/O error, and it was not due to
  * device removal (which would cause the timeout to be cancelled).
  */
-/* ARGSUSED */
 static void
 zfs_fm_timeout(fmd_hdl_t *hdl, id_t id, void *data)
 {
 	zfs_case_t *zcp = data;
 
 	if (id == zcp->zc_remove_timer)
-		zfs_case_solve(hdl, zcp, "fault.fs.zfs.vdev.io", B_FALSE);
+		zfs_case_solve(hdl, zcp, "fault.fs.zfs.vdev.io");
 }
 
 /*
@@ -875,22 +1076,13 @@ zfs_fm_close(fmd_hdl_t *hdl, fmd_case_t *cs)
 		fmd_serd_destroy(hdl, zcp->zc_data.zc_serd_checksum);
 	if (zcp->zc_data.zc_serd_io[0] != '\0')
 		fmd_serd_destroy(hdl, zcp->zc_data.zc_serd_io);
+	if (zcp->zc_data.zc_serd_slow_io[0] != '\0')
+		fmd_serd_destroy(hdl, zcp->zc_data.zc_serd_slow_io);
 	if (zcp->zc_data.zc_has_remove_timer)
 		fmd_timer_remove(hdl, zcp->zc_remove_timer);
 
-	uu_list_remove(zfs_cases, zcp);
-	uu_list_node_fini(zcp, &zcp->zc_node, zfs_case_pool);
+	list_remove(&zfs_cases, zcp);
 	fmd_hdl_free(hdl, zcp, sizeof (zfs_case_t));
-}
-
-/*
- * We use the fmd gc entry point to look for old cases that no longer apply.
- * This allows us to keep our set of case data small in a long running system.
- */
-static void
-zfs_fm_gc(fmd_hdl_t *hdl)
-{
-	zfs_purge_cases(hdl);
 }
 
 static const fmd_hdl_ops_t fmd_ops = {
@@ -898,15 +1090,10 @@ static const fmd_hdl_ops_t fmd_ops = {
 	zfs_fm_timeout,	/* fmdo_timeout */
 	zfs_fm_close,	/* fmdo_close */
 	NULL,		/* fmdo_stats */
-	zfs_fm_gc,	/* fmdo_gc */
+	NULL,	/* fmdo_gc */
 };
 
 static const fmd_prop_t fmd_props[] = {
-	{ "checksum_N", FMD_TYPE_UINT32, "10" },
-	{ "checksum_T", FMD_TYPE_TIME, "10min" },
-	{ "io_N", FMD_TYPE_UINT32, "10" },
-	{ "io_T", FMD_TYPE_TIME, "10min" },
-	{ "remove_timeout", FMD_TYPE_TIME, "15sec" },
 	{ NULL, 0, NULL }
 };
 
@@ -922,23 +1109,11 @@ _zfs_diagnosis_init(fmd_hdl_t *hdl)
 	if ((zhdl = libzfs_init()) == NULL)
 		return;
 
-	if ((zfs_case_pool = uu_list_pool_create("zfs_case_pool",
-	    sizeof (zfs_case_t), offsetof(zfs_case_t, zc_node),
-	    NULL, UU_LIST_POOL_DEBUG)) == NULL) {
-		libzfs_fini(zhdl);
-		return;
-	}
-
-	if ((zfs_cases = uu_list_create(zfs_case_pool, NULL,
-	    UU_LIST_DEBUG)) == NULL) {
-		uu_list_pool_destroy(zfs_case_pool);
-		libzfs_fini(zhdl);
-		return;
-	}
+	list_create(&zfs_cases,
+	    sizeof (zfs_case_t), offsetof(zfs_case_t, zc_node));
 
 	if (fmd_hdl_register(hdl, FMD_API_VERSION, &fmd_info) != 0) {
-		uu_list_destroy(zfs_cases);
-		uu_list_pool_destroy(zfs_case_pool);
+		list_destroy(&zfs_cases);
 		libzfs_fini(zhdl);
 		return;
 	}
@@ -947,32 +1122,24 @@ _zfs_diagnosis_init(fmd_hdl_t *hdl)
 
 	(void) fmd_stat_create(hdl, FMD_STAT_NOALLOC, sizeof (zfs_stats) /
 	    sizeof (fmd_stat_t), (fmd_stat_t *)&zfs_stats);
-
-	zfs_remove_timeout = fmd_prop_get_int64(hdl, "remove_timeout");
 }
 
 void
 _zfs_diagnosis_fini(fmd_hdl_t *hdl)
 {
 	zfs_case_t *zcp;
-	uu_list_walk_t *walk;
 	libzfs_handle_t *zhdl;
 
 	/*
 	 * Remove all active cases.
 	 */
-	walk = uu_list_walk_start(zfs_cases, UU_WALK_ROBUST);
-	while ((zcp = uu_list_walk_next(walk)) != NULL) {
+	while ((zcp = list_remove_head(&zfs_cases)) != NULL) {
 		fmd_hdl_debug(hdl, "removing case ena %llu",
 		    (long long unsigned)zcp->zc_data.zc_ena);
-		uu_list_remove(zfs_cases, zcp);
-		uu_list_node_fini(zcp, &zcp->zc_node, zfs_case_pool);
 		fmd_hdl_free(hdl, zcp, sizeof (zfs_case_t));
 	}
-	uu_list_walk_end(walk);
 
-	uu_list_destroy(zfs_cases);
-	uu_list_pool_destroy(zfs_case_pool);
+	list_destroy(&zfs_cases);
 
 	zhdl = fmd_hdl_getspecific(hdl);
 	libzfs_fini(zhdl);

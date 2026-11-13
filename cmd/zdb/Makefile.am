@@ -1,19 +1,21 @@
-include $(top_srcdir)/config/Rules.am
+# SPDX-License-Identifier: CDDL-1.0
+zdb_CPPFLAGS = $(AM_CPPFLAGS) $(LIBZPOOL_CPPFLAGS)
+zdb_CFLAGS   = $(AM_CFLAGS) $(LIBCRYPTO_CFLAGS)
 
-AM_CPPFLAGS += -DDEBUG
-
-DEFAULT_INCLUDES += \
-	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/lib/libspl/include
-
-sbin_PROGRAMS = zdb
+sbin_PROGRAMS   += zdb
+CPPCHECKTARGETS += zdb
 
 zdb_SOURCES = \
-	zdb.c \
-	zdb_il.c \
-	zdb.h
+	%D%/zdb.c \
+	%D%/zdb.h \
+	%D%/zdb_il.c
 
 zdb_LDADD = \
-	$(top_builddir)/lib/libnvpair/libnvpair.la \
-	$(top_builddir)/lib/libzfs/libzfs.la \
-	$(top_builddir)/lib/libzpool/libzpool.la
+	libzdb.la \
+	libzpool.la \
+	libzfs_core.la \
+	libnvpair.la \
+	libbtree.la \
+	librange_tree.la
+
+zdb_LDADD += $(LIBCRYPTO_LIBS)

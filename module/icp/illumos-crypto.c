@@ -1,42 +1,22 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License, Version 1.0 only
- * (the "License").  You may not use this file except in compliance
- * with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2017, Datto, Inc. All rights reserved.
  */
 
-#ifdef _KERNEL
-#include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/init.h>
-#else
-#define	__exit
-#define	__init
-#endif
-
 #include <sys/crypto/common.h>
 #include <sys/crypto/api.h>
 #include <sys/crypto/impl.h>
 #include <sys/crypto/sched_impl.h>
-#include <sys/modhash_impl.h>
 #include <sys/crypto/icp.h>
 
 /*
@@ -61,16 +41,15 @@
  * the future it may make sense to have encryption algorithms that are
  * loadable into the ICP at runtime via separate kernel modules.
  * However, considering that this code will probably not see much use
- * outside of zfs and zfs encryption only requires aes and sha256
+ * outside of zfs and zfs encryption only requires a select few
  * algorithms it seemed like more trouble than it was worth to port over
  * Illumos's kernel module structure to a Linux kernel module. In
  * addition, The Illumos code related to keeping track of kernel modules
- * is very much tied to the Illumos OS and proved difficult to port to
- * Linux. Therefore, the structure of the ICP was simplified to work
- * statically and several pieces of code responsible for keeping track
- * of Illumos kernel modules were removed and simplified. All module
- * initialization and destruction is now called in this file during
- * Linux kernel module loading and unloading.
+ * is very much tied to the Illumos OS and proved difficult to port.
+ * Therefore, the structure of the ICP was simplified to work
+ * statically and all the Illumos kernel module loading subsystem was removed.
+ * All module initialization and destruction is now called in this file
+ * during kernel module loading and unloading.
  *
  * 4) Adding destructors: The Illumos Crypto Layer is built into
  * the Illumos kernel and is not meant to be unloaded. Some destructors
@@ -93,7 +72,7 @@
  * will use the generic implementation.
  *
  * 7) Removing sha384 and sha512 code: The sha code was actually very
- * wasy to port. However, the generic sha384 and sha512 code actually
+ * easy to port. However, the generic sha384 and sha512 code actually
  * exceeds the stack size on arm and powerpc architectures. In an effort
  * to remove warnings, this code was removed.
  *
@@ -106,27 +85,20 @@
  * ZFS Makefiles.
  */
 
-void __exit
+void
 icp_fini(void)
 {
-	skein_mod_fini();
 	sha2_mod_fini();
-	sha1_mod_fini();
-	edonr_mod_fini();
 	aes_mod_fini();
 	kcf_sched_destroy();
 	kcf_prov_tab_destroy();
 	kcf_destroy_mech_tabs();
-	mod_hash_fini();
 }
 
 /* roughly equivalent to kcf.c: _init() */
 int __init
 icp_init(void)
 {
-	/* initialize the mod hash module */
-	mod_hash_init();
-
 	/* initialize the mechanisms tables supported out-of-the-box */
 	kcf_init_mech_tabs();
 
@@ -141,18 +113,7 @@ icp_init(void)
 
 	/* initialize algorithms */
 	aes_mod_init();
-	edonr_mod_init();
-	sha1_mod_init();
 	sha2_mod_init();
-	skein_mod_init();
 
 	return (0);
 }
-
-#if defined(_KERNEL) && defined(HAVE_SPL)
-module_exit(icp_fini);
-module_init(icp_init);
-MODULE_AUTHOR(ZFS_META_AUTHOR);
-MODULE_LICENSE(ZFS_META_LICENSE);
-MODULE_VERSION(ZFS_META_VERSION "-" ZFS_META_RELEASE);
-#endif

@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -46,11 +37,6 @@
 
 verify_runnable "global"
 
-# See issue: https://github.com/zfsonlinux/zfs/issues/6145
-if is_linux; then
-	log_unsupported "Test case occasionally fails"
-fi
-
 #
 # Parse the results of zpool & zfs creation with specified size
 #
@@ -73,13 +59,13 @@ function parse_expected_output
 	esac
 
 	log_note "Detect zpool $TESTPOOL in this test machine."
-	log_must eval "zpool list $TESTPOOL > /tmp/j.$$"
-	log_must eval "grep $TESTPOOL /tmp/j.$$ | \
+	log_must eval "zpool list $TESTPOOL > $TEST_BASE_DIR/j.$$"
+	log_must eval "grep $TESTPOOL $TEST_BASE_DIR/j.$$ | \
 		awk '{print $2}' | grep $CHKUNIT"
 
 	log_note "Detect the file system in this test machine."
-	log_must eval "df -F zfs -h > /tmp/j.$$"
-	log_must eval "grep $TESTPOOL /tmp/j.$$ | \
+	log_must eval "df -F zfs -h > $TEST_BASE_DIR/j.$$"
+	log_must eval "grep $TESTPOOL $TEST_BASE_DIR/j.$$ | \
 		awk '{print $2}' | grep $CHKUNIT"
 
 	return 0
@@ -96,17 +82,17 @@ function cleanup
 		if ismounted $TESTPOOL/$TESTFS ; then
 			log_must zfs unmount $TESTPOOL/$TESTFS
 		fi
-		log_must zfs destroy $TESTPOOL/$TESTFS
+		destroy_dataset $TESTPOOL/$TESTFS
 	fi
 
 	destroy_pool $TESTPOOL
 
 	datasetexists $TESTPOOL2/$TESTVOL && \
-		log_must zfs destroy $TESTPOOL2/$TESTVOL
+		destroy_dataset $TESTPOOL2/$TESTVOL
 
 	destroy_pool $TESTPOOL2
 
-	rm -f /tmp/j.* > /dev/null
+	rm -f $TEST_BASE_DIR/j.* > /dev/null
 }
 
 log_assert "The largest pool can be created and a dataset in that" \
@@ -122,15 +108,12 @@ log_onexit cleanup
 # units for 'df'.  It must be greater than one.
 # -----------------------------------------------------------------------
 typeset str
-typeset -i ret
 for volsize in $VOLSIZES; do
 	log_note "Create a pool which will contain a volume device"
-	create_pool $TESTPOOL2 "$DISKS"
+	log_must create_pool $TESTPOOL2 "$DISKS"
 
 	log_note "Create a volume device of desired sizes: $volsize"
-	str=$(zfs create -sV $volsize $TESTPOOL2/$TESTVOL 2>&1)
-	ret=$?
-	if (( ret != 0 )); then
+	if ! str=$(zfs create -sV $volsize $TESTPOOL2/$TESTVOL 2>&1); then
 		if [[ is_32bit && \
 			$str == *${VOL_LIMIT_KEYWORD1}* || \
 			$str == *${VOL_LIMIT_KEYWORD2}* || \
@@ -145,7 +128,7 @@ for volsize in $VOLSIZES; do
 	block_device_wait
 
 	log_note "Create the largest pool allowed using the volume vdev"
-	create_pool $TESTPOOL "$VOL_PATH"
+	log_must create_pool $TESTPOOL "$VOL_PATH"
 
 	log_note "Create a zfs file system in the largest pool"
 	log_must zfs create $TESTPOOL/$TESTFS
@@ -159,8 +142,8 @@ for volsize in $VOLSIZES; do
 	log_note "Destroy zfs, volume & zpool"
 	log_must zfs destroy $TESTPOOL/$TESTFS
 	destroy_pool $TESTPOOL
-	log_must zfs destroy $TESTPOOL2/$TESTVOL
+	log_must_busy zfs destroy $TESTPOOL2/$TESTVOL
 	destroy_pool $TESTPOOL2
 done
 
-log_pass "Dateset can be created, mounted & destroy in largest pool succeeded."
+log_pass "Dataset can be created, mounted & destroy in largest pool succeeded."

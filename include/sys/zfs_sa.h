@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
@@ -74,6 +65,8 @@ typedef enum zpl_attr {
 	ZPL_SCANSTAMP,
 	ZPL_DACL_ACES,
 	ZPL_DXATTR,
+	ZPL_PROJID,
+	ZPL_SEQ,
 	ZPL_END
 } zpl_attr_t;
 
@@ -87,9 +80,10 @@ typedef enum zpl_attr {
 #define	SA_UID_OFFSET		24
 #define	SA_GID_OFFSET		32
 #define	SA_PARENT_OFFSET	40
+#define	SA_FLAGS_OFFSET		48
+#define	SA_PROJID_OFFSET	128
 
-extern sa_attr_reg_t zfs_attr_table[ZPL_END + 1];
-extern sa_attr_reg_t zfs_legacy_attr_table[ZPL_END + 1];
+extern const sa_attr_reg_t zfs_attr_table[ZPL_END + 1];
 
 /*
  * This is a deprecated data structure that only exists for
@@ -131,12 +125,12 @@ typedef struct znode_phys {
 #define	DXATTR_MAX_ENTRY_SIZE	(32768)
 #define	DXATTR_MAX_SA_SIZE	(SPA_OLD_MAXBLOCKSIZE >> 1)
 
-int zfs_sa_readlink(struct znode *, uio_t *);
+int zfs_sa_readlink(struct znode *, zfs_uio_t *);
 void zfs_sa_symlink(struct znode *, char *link, int len, dmu_tx_t *);
 void zfs_sa_get_scanstamp(struct znode *, xvattr_t *);
 void zfs_sa_set_scanstamp(struct znode *, xvattr_t *, dmu_tx_t *);
 int zfs_sa_get_xattr(struct znode *);
-int zfs_sa_set_xattr(struct znode *);
+int zfs_sa_set_xattr(struct znode *, const char *, const void *, size_t);
 void zfs_sa_upgrade(struct sa_handle  *, dmu_tx_t *);
 void zfs_sa_upgrade_txholds(dmu_tx_t *, struct znode *);
 void zfs_sa_init(void);

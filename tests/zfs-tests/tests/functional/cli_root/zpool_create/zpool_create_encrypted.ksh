@@ -1,6 +1,5 @@
 #!/bin/ksh -p
-#
-# CDDL HEADER START
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -9,9 +8,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
-#
-# CDDL HEADER END
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -45,6 +42,7 @@
 # N	1	1	no	keyformat given, but crypt off
 # Y	0	0	no	no keyformat specified for new key
 # Y	0	1	no	no keyformat specified for new key
+# Y	1	1	no	unsupported combination of non-encryption props
 # Y	1	0	yes	new encryption root
 # Y	1	1	yes	new encryption root
 #
@@ -82,6 +80,10 @@ log_mustnot zpool create -O encryption=off -O keyformat=passphrase \
 log_mustnot zpool create -O encryption=on $TESTPOOL $DISKS
 log_mustnot zpool create -O encryption=on -O keylocation=prompt \
 	$TESTPOOL $DISKS
+
+log_mustnot eval "echo $PASSPHRASE | zpool create -O encryption=on" \
+	"-O keyformat=passphrase -O keylocation=prompt" \
+	"-o feature@lz4_compress=disabled -O compression=lz4 $TESTPOOL $DISKS"
 
 log_must eval "echo $PASSPHRASE | zpool create -O encryption=on" \
 	"-O keyformat=passphrase $TESTPOOL $DISKS"

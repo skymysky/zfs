@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -45,14 +36,14 @@ verify_runnable "global"
 
 function cleanup
 {
-	datasetexists $TESTPOOL && log_must zpool destroy $TESTPOOL
+	poolexists $TESTPOOL && destroy_pool $TESTPOOL
 }
 
 log_onexit cleanup
 
 set -A args "QuOta=none" "quota=non" "quota=abcd" "quota=0" "quota=" \
     "ResErVaTi0n=none" "reserV=none" "reservation=abcd" "reserv=" \
-    "recorDSize=64k" "recordsize=2M" "recordsize=2048K" \
+    "recorDSize=64k" "recordsize=32M" "recordsize=32768K" \
     "recordsize=256" "recsize=" "recsize=zero" "recordsize=0" \
     "mountPoint=/tmp/tmpfile$$" "mountpoint=non0" "mountpoint=" \
     "mountpoint=LEGACY" "mounpoint=none" \
@@ -63,7 +54,6 @@ set -A args "QuOta=none" "quota=non" "quota=abcd" "quota=0" "quota=" \
     "deviCes=on" "devices=OFF" "devices=aaa" \
     "exec=ON" "EXec=off" "exec=aaa" \
     "readonly=ON" "reADOnly=off" "rdonly=OFF" "rdonly=aaa" \
-    "zoned=ON" "ZoNed=off" "zoned=aaa" \
     "snapdIR=hidden" "snapdir=VISible" "snapdir=aaa" \
     "acltype=DIScard" "acltYPE=groupmask" "acltype=aaa" \
     "aclinherit=deny" "aclinHerit=secure" "aclinherit=aaa" \
@@ -72,12 +62,25 @@ set -A args "QuOta=none" "quota=non" "quota=abcd" "quota=0" "quota=" \
     "referenced=10K" "compressratio=1.00x" \
     "version=0" "version=1.234" "version=10K" "version=-1" \
     "version=aaa" "version=999"
+if is_freebsd; then
+	args+=("jailed=ON" "JaiLed=off" "jailed=aaa")
+else
+	args+=("zoned=ON" "ZoNed=off" "zoned=aaa")
+fi
 
 log_assert "'zpool create -O' should return an error with badly formed parameters."
 
 typeset -i i=0
 while (( $i < ${#args[*]} )); do
-	log_mustnot zpool create -O ${args[i]} -f $TESTPOOL $DISKS
+	typeset arg=${args[i]}
+	if is_freebsd; then
+		# FreeBSD does not strictly validate share opts (yet).
+		if [[ $arg == "sharenfs="* ]]; then
+			((i = i + 1))
+			continue
+		fi
+	fi
+	log_mustnot zpool create -O $arg -f $TESTPOOL $DISKS
 	((i = i + 1))
 done
 

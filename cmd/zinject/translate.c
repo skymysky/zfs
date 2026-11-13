@@ -1,31 +1,21 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2006, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2020 by Delphix. All rights reserved.
  */
 
 #include <libzfs.h>
-
-#include <sys/zfs_context.h>
+#include <libzutil.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -33,7 +23,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
+#include <string.h>
 #include <sys/file.h>
 #include <sys/mntent.h>
 #include <sys/mnttab.h>
@@ -44,13 +34,9 @@
 #include <sys/dmu_objset.h>
 #include <sys/dnode.h>
 #include <sys/vdev_impl.h>
-
-#include <sys/mkdev.h>
+#include <sys/zvol.h>
 
 #include "zinject.h"
-
-extern void kernel_init(int);
-extern void kernel_fini(void);
 
 static int debug;
 
@@ -80,18 +66,52 @@ compress_slashes(const char *src, char *dest)
 }
 
 /*
- * Given a full path to a file, translate into a dataset name and a relative
- * path within the dataset.  'dataset' must be at least MAXNAMELEN characters,
- * and 'relpath' must be at least MAXPATHLEN characters.  We also pass a stat64
- * buffer, which we need later to get the object ID.
+ * If 'inpath' points to a zvol block device, copy the zvol dataset path to 'ds'
+ * (like "tank/vol"), and return true.  If 'inpath' does not point to a zvol
+ * block device, then return false.
+ */
+static boolean_t
+get_zvol_dataset(const char *inpath, char *ds)
+{
+	boolean_t rc = B_FALSE;
+
+	char *buf = realpath(inpath, NULL);
+	if (buf == NULL)
+		return (B_FALSE);
+
+	int fd = open(buf, O_RDONLY | O_CLOEXEC);
+	free(buf);
+
+	if (fd == -1)
+		return (B_FALSE);
+
+	/*
+	 * We want to determine if 'inpath' is a zvol device.  There's no
+	 * universal way to do that, so we use OS-specific zvol ioctls.
+	 */
+#if defined(__FreeBSD__)
+	if (ioctl(fd, DIOCGPHYSPATH, ds) == 0)
+		rc = B_TRUE;
+#else
+	if (ioctl(fd, BLKZNAME, ds) == 0)
+		rc = B_TRUE;
+#endif
+	close(fd);
+
+	return (rc);
+}
+
+/*
+ * Given a full path to a file or zvol device, translate into a dataset name and
+ * a relative path within the dataset.  'dataset' must be at least MAXNAMELEN
+ * characters, and 'relpath' must be at least MAXPATHLEN characters.  We also
+ * pass a stat64 buffer, which we need later to get the object ID.
  */
 static int
 parse_pathname(const char *inpath, char *dataset, char *relpath,
     struct stat64 *statbuf)
 {
-	struct extmnttab mp;
-	FILE *fp;
-	int match;
+	struct mnttab mp;
 	const char *rel;
 	char fullpath[MAXPATHLEN];
 
@@ -104,35 +124,40 @@ parse_pathname(const char *inpath, char *dataset, char *relpath,
 		return (-1);
 	}
 
-	if (strlen(fullpath) >= MAXPATHLEN) {
-		(void) fprintf(stderr, "invalid object; pathname too long\n");
-		return (-1);
-	}
+	/* special case: inject errors into zvol */
+	if (get_zvol_dataset(inpath, fullpath)) {
+		char *slash;
+		/*
+		 * The zvol's inode does not contain its object number.
+		 * However, it has long been the case that the zvol data is
+		 * object number 1 (ZVOL_OBJ):
+		 *
+		 * Object  lvl   iblk   dblk  dsize  lsize   %full  type
+		 *      0    6   128K    16K    11K    16K    6.25  DMU dnode
+		 *      1    2   128K    16K  20.1M    20M  100.00  zvol object
+		 *      2    1   128K    512      0    512  100.00  zvol prop
+		 *
+		 * So we hardcode that in the statbuf inode field as workaround.
+		 */
+		statbuf->st_ino = ZVOL_OBJ;
 
-	if (stat64(fullpath, statbuf) != 0) {
-		(void) fprintf(stderr, "cannot open '%s': %s\n",
-		    fullpath, strerror(errno));
-		return (-1);
-	}
+		(void) strlcpy(dataset, fullpath, MAXNAMELEN);
 
-#ifdef HAVE_SETMNTENT
-	if ((fp = setmntent(MNTTAB, "r")) == NULL) {
-#else
-	if ((fp = fopen(MNTTAB, "r")) == NULL) {
-#endif
-		(void) fprintf(stderr, "cannot open %s\n", MNTTAB);
-		return (-1);
-	}
-
-	match = 0;
-	while (getextmntent(fp, &mp, sizeof (mp)) == 0) {
-		if (makedev(mp.mnt_major, mp.mnt_minor) == statbuf->st_dev) {
-			match = 1;
-			break;
+		/*
+		 * fullpath contains string like 'tank/zvol'.  Strip off the
+		 * 'tank' and 'zvol' parts.
+		 */
+		slash = strchr(fullpath, '/');
+		if (slash == NULL) {
+			(void) fprintf(stderr, "invalid volume name: '%s'\n",
+			    fullpath);
+			return (-1);
 		}
+		(void) strlcpy(relpath, slash + 1, MAXPATHLEN);
+		return (0);
 	}
 
-	if (!match) {
+	if (getextmntent(fullpath, &mp, statbuf) != 0) {
 		(void) fprintf(stderr, "cannot find mountpoint for '%s'\n",
 		    fullpath);
 		return (-1);
@@ -150,62 +175,43 @@ parse_pathname(const char *inpath, char *dataset, char *relpath,
 		return (-1);
 	}
 
-	(void) strcpy(dataset, mp.mnt_special);
+	(void) strlcpy(dataset, mp.mnt_special, MAXNAMELEN);
 
 	rel = fullpath + strlen(mp.mnt_mountp);
 	if (rel[0] == '/')
 		rel++;
-	(void) strcpy(relpath, rel);
+	(void) strlcpy(relpath, rel, MAXPATHLEN);
 
 	return (0);
 }
 
 /*
- * Convert from a (dataset, path) pair into a (objset, object) pair.  Note that
- * we grab the object number from the inode number, since looking this up via
- * libzpool is a real pain.
+ * Convert from a dataset to a objset id. Note that
+ * we grab the object number from the inode number.
  */
-/* ARGSUSED */
 static int
-object_from_path(const char *dataset, const char *path, struct stat64 *statbuf,
-    zinject_record_t *record)
+object_from_path(const char *dataset, uint64_t object, zinject_record_t *record)
 {
-	objset_t *os;
-	int err;
+	zfs_handle_t *zhp;
 
-	/*
-	 * Before doing any libzpool operations, call sync() to ensure that the
-	 * on-disk state is consistent with the in-core state.
-	 */
-	sync();
-
-	err = dmu_objset_own(dataset, DMU_OST_ZFS, B_TRUE, B_FALSE, FTAG, &os);
-	if (err != 0) {
-		(void) fprintf(stderr, "cannot open dataset '%s': %s\n",
-		    dataset, strerror(err));
+	if ((zhp = zfs_open(g_zfs, dataset, ZFS_TYPE_DATASET)) == NULL)
 		return (-1);
-	}
 
-	record->zi_objset = dmu_objset_id(os);
-	record->zi_object = statbuf->st_ino;
+	record->zi_objset = zfs_prop_get_int(zhp, ZFS_PROP_OBJSETID);
+	record->zi_object = object;
 
-	dmu_objset_disown(os, B_FALSE, FTAG);
+	zfs_close(zhp);
 
 	return (0);
 }
 
 /*
- * Calculate the real range based on the type, level, and range given.
+ * Initialize the range based on the type, level, and range given.
  */
 static int
-calculate_range(const char *dataset, err_type_t type, int level, char *range,
+initialize_range(err_type_t type, int level, char *range,
     zinject_record_t *record)
 {
-	objset_t *os = NULL;
-	dnode_t *dn = NULL;
-	int err;
-	int ret = -1;
-
 	/*
 	 * Determine the numeric range from the string.
 	 */
@@ -218,28 +224,35 @@ calculate_range(const char *dataset, err_type_t type, int level, char *range,
 		record->zi_start = 0;
 		record->zi_end = -1ULL;
 	} else {
-		char *end;
+		char *comma;
+		int error;
 
-		/* XXX add support for suffixes */
-		record->zi_start = strtoull(range, &end, 10);
+		comma = strchr(range, ',');
+		if (comma != NULL)
+			*comma = '\0';
 
+		error = zfs_nicestrtonum(g_zfs, range,
+		    &record->zi_start);
 
-		if (*end == '\0')
+		if (comma != NULL)
+			*comma = ',';
+
+		if (error != 0)
+			goto bad_range;
+
+		if (comma != NULL) {
+			if (zfs_nicestrtonum(g_zfs, comma + 1,
+			    &record->zi_end) != 0)
+				goto bad_range;
+		} else {
 			record->zi_end = record->zi_start + 1;
-		else if (*end == ',')
-			record->zi_end = strtoull(end + 1, &end, 10);
-
-		if (*end != '\0') {
-			(void) fprintf(stderr, "invalid range '%s': must be "
-			    "a numeric range of the form 'start[,end]'\n",
-			    range);
-			goto out;
 		}
 	}
 
 	switch (type) {
 	default:
 		break;
+
 	case TYPE_DATA:
 		break;
 
@@ -253,7 +266,7 @@ calculate_range(const char *dataset, err_type_t type, int level, char *range,
 		if (range != NULL) {
 			(void) fprintf(stderr, "range cannot be specified when "
 			    "type is 'dnode'\n");
-			goto out;
+			return (-1);
 		}
 
 		record->zi_start = record->zi_object * sizeof (dnode_phys_t);
@@ -262,76 +275,14 @@ calculate_range(const char *dataset, err_type_t type, int level, char *range,
 		break;
 	}
 
-	/*
-	 * Get the dnode associated with object, so we can calculate the block
-	 * size.
-	 */
-	if ((err = dmu_objset_own(dataset, DMU_OST_ANY,
-	    B_TRUE, B_FALSE, FTAG, &os)) != 0) {
-		(void) fprintf(stderr, "cannot open dataset '%s': %s\n",
-		    dataset, strerror(err));
-		goto out;
-	}
-
-	if (record->zi_object == 0) {
-		dn = DMU_META_DNODE(os);
-	} else {
-		err = dnode_hold(os, record->zi_object, FTAG, &dn);
-		if (err != 0) {
-			(void) fprintf(stderr, "failed to hold dnode "
-			    "for object %llu\n",
-			    (u_longlong_t)record->zi_object);
-			goto out;
-		}
-	}
-
-
-	ziprintf("data shift: %d\n", (int)dn->dn_datablkshift);
-	ziprintf(" ind shift: %d\n", (int)dn->dn_indblkshift);
-
-	/*
-	 * Translate range into block IDs.
-	 */
-	if (record->zi_start != 0 || record->zi_end != -1ULL) {
-		record->zi_start >>= dn->dn_datablkshift;
-		record->zi_end >>= dn->dn_datablkshift;
-	}
-
-	/*
-	 * Check level, and then translate level 0 blkids into ranges
-	 * appropriate for level of indirection.
-	 */
 	record->zi_level = level;
-	if (level > 0) {
-		ziprintf("level 0 blkid range: [%llu, %llu]\n",
-		    record->zi_start, record->zi_end);
 
-		if (level >= dn->dn_nlevels) {
-			(void) fprintf(stderr, "level %d exceeds max level "
-			    "of object (%d)\n", level, dn->dn_nlevels - 1);
-			goto out;
-		}
+	return (0);
 
-		if (record->zi_start != 0 || record->zi_end != 0) {
-			int shift = dn->dn_indblkshift - SPA_BLKPTRSHIFT;
-
-			for (; level > 0; level--) {
-				record->zi_start >>= shift;
-				record->zi_end >>= shift;
-			}
-		}
-	}
-
-	ret = 0;
-out:
-	if (dn) {
-		if (dn != DMU_META_DNODE(os))
-			dnode_rele(dn, FTAG);
-	}
-	if (os)
-		dmu_objset_disown(os, B_FALSE, FTAG);
-
-	return (ret);
+bad_range:
+	(void) fprintf(stderr, "invalid range '%s': must be of the form "
+	    "'start[,end]'\n", range);
+	return (-1);
 }
 
 int
@@ -342,8 +293,6 @@ translate_record(err_type_t type, const char *object, const char *range,
 	char *slash;
 	struct stat64 statbuf;
 	int ret = -1;
-
-	kernel_init(FREAD);
 
 	debug = (getenv("ZINJECT_DEBUG") != NULL);
 
@@ -380,7 +329,7 @@ translate_record(err_type_t type, const char *object, const char *range,
 		}
 
 		dataset[0] = '\0';
-		(void) strcpy(poolname, object);
+		(void) strlcpy(poolname, object, MAXNAMELEN);
 		return (0);
 	}
 
@@ -396,16 +345,16 @@ translate_record(err_type_t type, const char *object, const char *range,
 	/*
 	 * Convert (dataset, file) into (objset, object)
 	 */
-	if (object_from_path(dataset, path, &statbuf, record) != 0)
+	if (object_from_path(dataset, statbuf.st_ino, record) != 0)
 		goto err;
 
 	ziprintf("raw objset: %llu\n", record->zi_objset);
 	ziprintf("raw object: %llu\n", record->zi_object);
 
 	/*
-	 * For the given object, calculate the real (type, level, range)
+	 * For the given object, initialize the range in bytes
 	 */
-	if (calculate_range(dataset, type, level, (char *)range, record) != 0)
+	if (initialize_range(type, level, (char *)range, record) != 0)
 		goto err;
 
 	ziprintf("    objset: %llu\n", record->zi_objset);
@@ -420,14 +369,13 @@ translate_record(err_type_t type, const char *object, const char *range,
 	/*
 	 * Copy the pool name
 	 */
-	(void) strcpy(poolname, dataset);
+	(void) strlcpy(poolname, dataset, MAXNAMELEN);
 	if ((slash = strchr(poolname, '/')) != NULL)
 		*slash = '\0';
 
 	ret = 0;
 
 err:
-	kernel_fini();
 	return (ret);
 }
 
@@ -512,7 +460,7 @@ translate_device(const char *pool, const char *device, err_type_t label_type,
 		record->zi_end = record->zi_start + VDEV_PAD_SIZE - 1;
 		break;
 	case TYPE_LABEL_PAD2:
-		record->zi_start = offsetof(vdev_label_t, vl_pad2);
+		record->zi_start = offsetof(vdev_label_t, vl_be);
 		record->zi_end = record->zi_start + VDEV_PAD_SIZE - 1;
 		break;
 	}

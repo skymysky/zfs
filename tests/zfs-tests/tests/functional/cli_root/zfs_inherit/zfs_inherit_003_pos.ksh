@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -37,8 +28,8 @@
 # 'zfs inherit' should return an error with bad parameters in one command.
 #
 # STRATEGY:
-# 1. Set an array of bad options and invlid properties to 'zfs inherit'
-# 2. Execute 'zfs inherit' with bad options and passing invlid properties
+# 1. Set an array of bad options and invalid properties to 'zfs inherit'
+# 2. Execute 'zfs inherit' with bad options and passing invalid properties
 # 3. Verify an error is returned.
 #
 
@@ -47,9 +38,7 @@ verify_runnable "both"
 function cleanup
 {
 	for ds in $TESTPOOL $TESTPOOL/$TESTFS $TESTPOOL/$TESTVOL ; do
-		if snapexists $ds@$TESTSNAP; then
-			log_must zfs destroy $ds@$TESTSNAP
-		fi
+		snapexists $ds@$TESTSNAP && destroy_dataset $ds@$TESTSNAP
 	done
 	cleanup_user_prop $TESTPOOL
 }

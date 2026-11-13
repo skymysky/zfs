@@ -1,23 +1,14 @@
 #! /bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -40,15 +31,11 @@
 #
 # STRATEGY:
 # 1. Modify /etc/vfstab to add the test zvol as swap device.
-# 2. Use /sbin/swapadd to add zvol as swap device throuth /etc/vfstab
+# 2. Use /sbin/swapadd to add zvol as swap device through /etc/vfstab
 # 3. Create a file under /tmp and verify the file
 #
 
 verify_runnable "global"
-
-if is_linux; then
-	log_unsupported "Modifies global non-ZFS system config"
-fi
 
 function cleanup
 {
@@ -73,12 +60,12 @@ log_onexit cleanup
 
 voldev=${ZVOL_DEVDIR}/$TESTPOOL/$TESTVOL
 VFSTAB_FILE=/etc/vfstab
-NEW_VFSTAB_FILE=/var/tmp/zvol_vfstab.$$
-PREV_VFSTAB_FILE=/var/tmp/zvol_vfstab.PREV.$$
+NEW_VFSTAB_FILE=$TEST_BASE_DIR/zvol_vfstab.$$
+PREV_VFSTAB_FILE=$TEST_BASE_DIR/zvol_vfstab.PREV.$$
 
 [[ -f $NEW_VFSTAB_FILE ]] && cp /dev/null $NEW_VFSTAB_FILE
 
-awk '{if ($4 != "swap") print $1}' /etc/vfstab > $NEW_VFSTAB_FILE
+awk '$4 != "swap" {print $1}' /etc/vfstab > $NEW_VFSTAB_FILE
 echo "$voldev\t-\t-\tswap\t-\tno\t-"  >> $NEW_VFSTAB_FILE
 
 # Copy off the original vfstab, and run swapadd on the newly constructed one.

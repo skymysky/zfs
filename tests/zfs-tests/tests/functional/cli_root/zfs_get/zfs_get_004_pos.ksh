@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -43,20 +34,13 @@
 
 verify_runnable "both"
 
-# See issue: https://github.com/zfsonlinux/zfs/issues/6145
-if is_linux; then
-	log_unsupported "Test case occasionally fails"
-fi
-
 function cleanup
 {
 	[[ -e $propfile ]] && rm -f $propfile
 
-	datasetexists $clone  && \
-		log_must zfs destroy $clone
+	datasetexists $clone  && destroy_dataset $clone
 	for snap in $fssnap $volsnap ; do
-		snapexists $snap && \
-			log_must zfs destroy $snap
+		snapexists $snap && destroy_dataset $snap
 	done
 
 	if [[ -n $globalzone ]] ; then
@@ -69,8 +53,7 @@ function cleanup
 		done
 	else
 		for fs in $TESTPOOL/$TESTFS1 $TESTPOOL/$TESTFS2 $TESTPOOL/$TESTFS3; do
-			datasetexists $fs && \
-				log_must zfs destroy -rf $fs
+			datasetexists $fs && destroy_dataset $fs -rf
 		done
 	fi
 }
@@ -119,7 +102,7 @@ availspace=$(get_prop available $TESTPOOL)
 typeset -i i=0
 
 # make sure 'availspace' is larger then twice of FILESIZE to create a new pool.
-# If any, we only totally create 3 pools for multple datasets testing to limit
+# If any, we only totally create 3 pools for multiple datasets testing to limit
 # testing time
 while (( availspace > DFILESIZE )) && (( i < 3 )) ; do
 	(( i += 1 ))
@@ -161,7 +144,7 @@ done
 typeset -i fspropnum=27
 typeset -i snappropnum=8
 typeset -i volpropnum=15
-propfile=/var/tmp/allpropfile.$$
+propfile=$TEST_BASE_DIR/allpropfile.$$
 
 typeset -i i=0
 typeset -i propnum=0
@@ -171,15 +154,12 @@ while (( i < ${#opts[*]} )); do
 	log_must eval "zfs get ${opts[i]} all >$propfile"
 
 	for ds in $allds; do
-		grep $ds $propfile >/dev/null 2>&1
-		(( $? != 0 )) && \
+		grep -q $ds $propfile || \
 			log_fail "There is no property for" \
 				"dataset $ds in 'get all' output."
 
-		propnum=`cat $propfile | awk '{print $1}' | \
-			grep "${ds}$" | wc -l`
-		ds_type=`zfs get -H -o value type $ds`
-		case $ds_type in
+		propnum=$(awk -v ds="${ds}$" '$1 ~ ds {++cnt}  END {print cnt}' $propfile)
+		case $(zfs get -H -o value type $ds) in
 			filesystem )
 				(( propnum < fspropnum )) && \
 				(( failflag += 1 ))

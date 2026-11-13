@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -47,7 +38,7 @@ verify_runnable "global"
 function cleanup
 {
 	is_swap_inuse $swapname && log_must swap_cleanup $swapname
-	datasetexists $vol && log_must zfs destroy $vol
+	datasetexists $vol && destroy_dataset $vol
 }
 
 log_assert "For an added swap zvol, (2G <= volsize <= 16G)"
@@ -62,7 +53,7 @@ for vbs in 8192 16384 32768 65536 131072; do
 
 		# Create a sparse volume to test larger sizes
 		log_must zfs create -s -b $vbs -V $volsize $vol
-		block_device_wait
+		block_device_wait $swapname
 		log_must swap_setup $swapname
 
 		new_volsize=$(get_prop volsize $vol)

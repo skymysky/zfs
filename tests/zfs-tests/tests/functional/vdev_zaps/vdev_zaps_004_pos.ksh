@@ -1,4 +1,5 @@
 #!/bin/ksh
+# SPDX-License-Identifier: CDDL-1.0
 
 #
 # This file and its contents are supplied under the terms of the
@@ -8,7 +9,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -31,11 +32,6 @@
 . $STF_SUITE/include/libtest.shlib
 . $STF_SUITE/tests/functional/vdev_zaps/vdev_zaps.kshlib
 
-# See issue: https://github.com/zfsonlinux/zfs/issues/6935
-if is_linux; then
-	log_unsupported "Test case occasionally fails"
-fi
-
 log_assert "Per-vdev ZAPs are transferred properly on attach/detach"
 
 DISK=${DISKS%% *}
@@ -43,8 +39,9 @@ log_must zpool create -f $TESTPOOL $DISK
 
 # Make the pool.
 conf="$TESTDIR/vz004"
-log_must zdb -PC $TESTPOOL > $conf
+log_must eval "zdb -PC $TESTPOOL > $conf"
 assert_has_sentinel "$conf"
+assert_root_zap $TESTPOOL "$conf"
 orig_top=$(get_top_vd_zap $DISK $conf)
 orig_leaf=$(get_leaf_vd_zap $DISK $conf)
 assert_zap_common $TESTPOOL $DISK "top" $orig_top
@@ -53,9 +50,10 @@ assert_zap_common $TESTPOOL $DISK "top" $orig_top
 # Attach a disk.
 #
 
-disk2=$(echo $DISKS | awk '{print $2}')
+read -r _ disk2 _ <<<"$DISKS"
 log_must zpool attach $TESTPOOL $DISK $disk2
-log_must zdb -PC $TESTPOOL > $conf
+log_must zpool wait -t resilver $TESTPOOL
+log_must eval "zdb -PC $TESTPOOL > $conf"
 
 # Ensure top-level ZAP was transferred successfully.
 new_top=$(get_top_vd_zap "type: 'mirror'" $conf)
@@ -84,7 +82,7 @@ dsk2_leaf=$(get_leaf_vd_zap $disk2 $conf)
 #
 
 log_must zpool detach $TESTPOOL $DISK
-log_must zdb -PC $TESTPOOL > $conf
+log_must eval "zdb -PC $TESTPOOL > $conf"
 
 final_top=$(get_top_vd_zap $disk2 $conf)
 final_leaf=$(get_leaf_vd_zap $disk2 $conf)

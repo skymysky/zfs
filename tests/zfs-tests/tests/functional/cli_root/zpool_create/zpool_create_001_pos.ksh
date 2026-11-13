@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -48,18 +39,6 @@ verify_runnable "global"
 function cleanup
 {
 	poolexists $TESTPOOL && destroy_pool $TESTPOOL
-
-	clean_blockfile "$TESTDIR0 $TESTDIR1"
-
-	if [[ -n $DISK ]]; then
-		partition_disk $((($MINVDEVSIZE / (1024 * 1024)) * 2))m $DISK 7
-	else
-		typeset disk=""
-		for disk in $DISK0 $DISK1; do
-			partition_disk \
-			    $((($MINVDEVSIZE / (1024 * 1024)) * 2))m $disk 7
-		done
-	fi
 }
 
 log_assert "'zpool create <pool> <vspec> ...' can successfully create" \
@@ -67,80 +46,29 @@ log_assert "'zpool create <pool> <vspec> ...' can successfully create" \
 
 log_onexit cleanup
 
-set -A keywords "" "mirror" "raidz" "raidz1"
+create_sparse_files "disk" 5 $MINVDEVSIZE2
 
-case $DISK_ARRAY_NUM in
-0|1)
-	typeset disk=""
-	if (( $DISK_ARRAY_NUM == 0 )); then
-		disk=$DISK
-	else
-		disk=$DISK0
-	fi
-	create_blockfile $FILESIZE $TESTDIR0/$FILEDISK0 \
-		${disk}${SLICE_PREFIX}${SLICE5}
-	create_blockfile $FILESIZE $TESTDIR1/$FILEDISK1 \
-		${disk}${SLICE_PREFIX}${SLICE6}
+pooldevs="${DISK0} \
+	\"${DISK0} ${DISK1}\" \
+	\"${DISK0} ${DISK1} ${DISK2}\" \
+	\"$disk0 $disk1\""
+mirrordevs="\"${DISK0} ${DISK1}\" \
+	$raidzdevs \
+	\"$disk0 $disk1\""
+anyraiddevs="\"$disk0 $disk1 $disk2 $disk3 $disk4\""
+raidzdevs="\"${DISK0} ${DISK1} ${DISK2}\""
+draiddevs="\"${DISK0} ${DISK1} ${DISK2}\""
 
-	pooldevs="${disk}${SLICE_PREFIX}${SLICE0} \
-		${DEV_DSKDIR}/${disk}${SLICE_PREFIX}${SLICE0} \
-		\"${disk}${SLICE_PREFIX}${SLICE0} \
-		${disk}${SLICE_PREFIX}${SLICE1}\" \
-                  $TESTDIR0/$FILEDISK0"
-	raidzdevs="\"${DEV_DSKDIR}/${disk}${SLICE_PREFIX}${SLICE0} \
-		${disk}${SLICE_PREFIX}${SLICE1}\" \
-		\"${disk}${SLICE_PREFIX}${SLICE0} \
-		${disk}${SLICE_PREFIX}${SLICE1} \
-		${disk}${SLICE_PREFIX}${SLICE3}\" \
-		\"${disk}${SLICE_PREFIX}${SLICE0} \
-		${disk}${SLICE_PREFIX}${SLICE1} \
-		${disk}${SLICE_PREFIX}${SLICE3} \
-		${disk}${SLICE_PREFIX}${SLICE4}\"\
-		\"$TESTDIR0/$FILEDISK0 $TESTDIR1/$FILEDISK1\""
-	mirrordevs=$raidzdevs
-	;;
-2|*)
-	create_blockfile $FILESIZE $TESTDIR0/$FILEDISK0 \
-		${DISK0}${SLICE_PREFIX}${SLICE5}
-        create_blockfile $FILESIZE $TESTDIR1/$FILEDISK1 \
-		${DISK1}${SLICE_PREFIX}${SLICE5}
-
-	pooldevs="${DISK0}${SLICE_PREFIX}${SLICE0} \
-		\"${DEV_DSKDIR}/${DISK0}${SLICE_PREFIX}${SLICE0} \
-		${DISK1}${SLICE_PREFIX}${SLICE0}\" \
-		\"${DISK0}${SLICE_PREFIX}${SLICE0} \
-		${DISK0}${SLICE_PREFIX}${SLICE1} \
-		${DISK1}${SLICE_PREFIX}${SLICE1}\"\
-		\"${DISK0}${SLICE_PREFIX}${SLICE0} \
-		${DISK1}${SLICE_PREFIX}${SLICE0} \
-		${DISK0}${SLICE_PREFIX}${SLICE1}\
-		${DISK1}${SLICE_PREFIX}${SLICE1}\" \
-		\"$TESTDIR0/$FILEDISK0 $TESTDIR1/$FILEDISK1\""
-	raidzdevs="\"${DEV_DSKDIR}/${DISK0}${SLICE_PREFIX}${SLICE0} \
-		${DISK1}${SLICE_PREFIX}${SLICE0}\" \
-		\"${DISK0}${SLICE_PREFIX}${SLICE0} \
-		${DISK0}${SLICE_PREFIX}${SLICE1} \
-		${DISK1}${SLICE_PREFIX}${SLICE1}\" \
-		\"${DISK0}${SLICE_PREFIX}${SLICE0} \
-		${DISK1}${SLICE_PREFIX}${SLICE0} \
-		${DISK0}${SLICE_PREFIX}${SLICE1} \
-		${DISK1}${SLICE_PREFIX}${SLICE1}\" \
-		\"$TESTDIR0/$FILEDISK0 $TESTDIR1/$FILEDISK1\""
-	mirrordevs=$raidzdevs
-	;;
-esac
-
-typeset -i i=0
-while (( $i < ${#keywords[*]} )); do
-	case ${keywords[i]} in
-	"")
-		create_pool_test "$TESTPOOL" "${keywords[i]}" "$pooldevs";;
-	mirror)
-		create_pool_test "$TESTPOOL" "${keywords[i]}" "$mirrordevs";;
-	raidz|raidz1)
-		create_pool_test "$TESTPOOL" "${keywords[i]}" "$raidzdevs" ;;
-	esac
-	(( i = i+1 ))
-done
+create_pool_test "$TESTPOOL" "" "$pooldevs"
+create_pool_test "$TESTPOOL" "mirror" "$mirrordevs"
+create_pool_test "$TESTPOOL" "raidz" "$raidzdevs"
+create_pool_test "$TESTPOOL" "raidz1" "$raidzdevs"
+create_pool_test "$TESTPOOL" "anymirror" "$anyraiddevs"
+create_pool_test "$TESTPOOL" "anymirror0" "$anyraiddevs"
+create_pool_test "$TESTPOOL" "anymirror1" "$anyraiddevs"
+create_pool_test "$TESTPOOL" "anymirror2" "$anyraiddevs"
+create_pool_test "$TESTPOOL" "anymirror3" "$anyraiddevs"
+create_pool_test "$TESTPOOL" "anymirror4" "$anyraiddevs"
+create_pool_test "$TESTPOOL" "draid" "$draiddevs"
 
 log_pass "'zpool create <pool> <vspec> ...' success."

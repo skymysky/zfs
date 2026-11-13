@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -48,17 +39,32 @@ verify_runnable "both"
 log_assert "ZFS can handle invalid user property."
 log_onexit cleanup_user_prop $TESTPOOL
 
-typeset -i i=0
-while ((i < 10)); do
+typeset -a names=()
+typeset -a values=()
+
+# Too long property name (256 bytes)
+names+=("$(awk 'BEGIN { printf "x:"; while (c++ < 254) printf "a" }')")
+values+=("too-long-property-name")
+# Too long property value (8K)
+names+=("too:long:property:value")
+values+=("$(awk 'BEGIN { while (c++ < 8192) printf "A" }')")
+# Invalid property names
+for i in {1..10}; do
 	typeset -i len
 	((len = RANDOM % 32))
-	typeset user_prop=$(invalid_user_property $len)
+	names+=("$(invalid_user_property $len)")
 	((len = RANDOM % 512))
-	typeset value=$(user_property_value $len)
+	values+=("$(user_property_value $len)")
+done
+
+typeset -i i=0
+while ((i < ${#names[@]})); do
+	typeset name="${names[$i]}"
+	typeset value="${values[$i]}"
 
 	for dtst in $TESTPOOL $TESTPOOL/$TESTFS $TESTPOOL/$TESTVOL ; do
-		log_mustnot zfs set $user_prop=$value $dtst
-		log_mustnot check_user_prop $dtst \"$user_prop\" \"$value\"
+		log_mustnot zfs set $name=$value $dtst
+		log_mustnot check_user_prop $dtst \"$name\" \"$value\"
 	done
 
 	((i += 1))

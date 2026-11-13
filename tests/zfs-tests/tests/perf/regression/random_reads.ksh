@@ -1,4 +1,5 @@
 #!/bin/ksh
+# SPDX-License-Identifier: CDDL-1.0
 
 #
 # This file and its contents are supplied under the terms of the
@@ -8,11 +9,11 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
-# Copyright (c) 2015, 2016 by Delphix. All rights reserved.
+# Copyright (c) 2015, 2021 by Delphix. All rights reserved.
 #
 
 #
@@ -25,65 +26,75 @@
 # for all fio runs. The ARC is cleared with `zinject -a` prior to each run
 # so reads will go to disk.
 #
+# Thread/Concurrency settings:
+#    PERF_NTHREADS defines the number of files created in the test filesystem,
+#    as well as the number of threads that will simultaneously drive IO to
+#    those files.  The settings chosen are from measurements in the
+#    PerfAutoESX/ZFSPerfESX Environments, selected at concurrency levels that
+#    are at peak throughput but lowest latency.  Higher concurrency introduces
+#    queue time latency and would reduce the impact of code-induced performance
+#    regressions.
+#
 
 . $STF_SUITE/include/libtest.shlib
 . $STF_SUITE/tests/perf/perf.shlib
 
+command -v fio > /dev/null || log_unsupported "fio missing"
+
 function cleanup
 {
 	# kill fio and iostat
-	pkill ${fio##*/}
-	pkill ${iostat##*/}
-	log_must_busy zfs destroy $TESTFS
-	log_must_busy zpool destroy $PERFPOOL
+	pkill fio
+	pkill iostat
+	recreate_perf_pool
 }
 
 trap "log_fail \"Measure IO stats during random read load\"" SIGTERM
-
-log_assert "Measure IO stats during random read load"
 log_onexit cleanup
 
-export TESTFS=$PERFPOOL/testfs
-recreate_perfpool
-log_must zfs create $PERF_FS_OPTS $TESTFS
+recreate_perf_pool
+populate_perf_filesystems
 
 # Aim to fill the pool to 50% capacity while accounting for a 3x compressratio.
-export TOTAL_SIZE=$(($(get_prop avail $TESTFS) * 3 / 2))
+export TOTAL_SIZE=$(($(get_prop avail $PERFPOOL) * 3 / 2))
 
-# Variables for use by fio.
-if [[ -n $PERF_REGRESSION_WEEKLY ]]; then
-	export PERF_RUNTIME=${PERF_RUNTIME:-$PERF_RUNTIME_WEEKLY}
-	export PERF_RUNTYPE=${PERF_RUNTYPE:-'weekly'}
-	export PERF_NTHREADS=${PERF_NTHREADS:-'8 16 64'}
-	export PERF_SYNC_TYPES=${PERF_SYNC_TYPES:-'1'}
-	export PERF_IOSIZES=${PERF_IOSIZES:-'8k'}
-elif [[ -n $PERF_REGRESSION_NIGHTLY ]]; then
-	export PERF_RUNTIME=${PERF_RUNTIME:-$PERF_RUNTIME_NIGHTLY}
-	export PERF_RUNTYPE=${PERF_RUNTYPE:-'nightly'}
-	export PERF_NTHREADS=${PERF_NTHREADS:-'64 128'}
-	export PERF_SYNC_TYPES=${PERF_SYNC_TYPES:-'1'}
-	export PERF_IOSIZES=${PERF_IOSIZES:-'8k'}
-fi
+# Variables specific to this test for use by fio.
+export PERF_NTHREADS=${PERF_NTHREADS:-'16 32'}
+export PERF_NTHREADS_PER_FS=${PERF_NTHREADS_PER_FS:-'0'}
+export PERF_IOSIZES=${PERF_IOSIZES:-'8k'}
+export PERF_SYNC_TYPES=${PERF_SYNC_TYPES:-'1'}
 
 # Layout the files to be used by the read tests. Create as many files as the
 # largest number of threads. An fio run with fewer threads will use a subset
 # of the available files.
 export NUMJOBS=$(get_max $PERF_NTHREADS)
 export FILE_SIZE=$((TOTAL_SIZE / NUMJOBS))
+export DIRECTORY=$(get_directory)
 log_must fio $FIO_SCRIPTS/mkfiles.fio
 
 # Set up the scripts and output files that will log performance data.
 lun_list=$(pool_to_lun_list $PERFPOOL)
 log_note "Collecting backend IO stats with lun list $lun_list"
 if is_linux; then
-        export collect_scripts=("zpool iostat -lpvyL $PERFPOOL 1" "zpool.iostat"
-            "vmstat 1" "vmstat" "mpstat -P ALL 1" "mpstat" "iostat -dxyz 1"
-            "iostat")
+	typeset perf_record_cmd="perf record -F 99 -a -g -q \
+	    -o /dev/stdout -- sleep ${PERF_RUNTIME}"
+
+        export collect_scripts=(
+	    "zpool iostat -lpvyL $PERFPOOL 1" "zpool.iostat"
+	    "vmstat -t 1" "vmstat"
+	    "mpstat -P ALL 1" "mpstat"
+	    "iostat -tdxyz 1" "iostat"
+	    "$perf_record_cmd" "perf"
+	)
 else
-	export collect_scripts=("$PERF_SCRIPTS/io.d $PERFPOOL $lun_list 1" "io"
-	    "vmstat 1" "vmstat" "mpstat 1" "mpstat" "iostat -xcnz 1" "iostat")
+	export collect_scripts=(
+	    "$PERF_SCRIPTS/io.d $PERFPOOL $lun_list 1" "io"
+	    "vmstat -T d 1" "vmstat"
+	    "mpstat -T d 1" "mpstat"
+	    "iostat -T d -xcnz 1" "iostat"
+	)
 fi
 
-log_note "Random reads with $PERF_RUNTYPE settings"
+log_note "Random reads with settings: $(print_perf_settings)"
 do_fio_run random_reads.fio false true
 log_pass "Measure IO stats during random read load"

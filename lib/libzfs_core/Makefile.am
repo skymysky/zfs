@@ -1,23 +1,43 @@
-include $(top_srcdir)/config/Rules.am
+# SPDX-License-Identifier: CDDL-1.0
+libzfs_core_la_CFLAGS  = $(AM_CFLAGS) $(LIBRARY_CFLAGS)
+libzfs_core_la_CFLAGS += -fvisibility=hidden
 
-DEFAULT_INCLUDES += \
-	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/lib/libspl/include
+libzfs_core_la_CPPFLAGS  = $(AM_CPPFLAGS)
+libzfs_core_la_CPPFLAGS += -I$(srcdir)/%D%
 
-lib_LTLIBRARIES = libzfs_core.la
+lib_LTLIBRARIES += libzfs_core.la
+CPPCHECKTARGETS += libzfs_core.la
 
-USER_C = \
-	libzfs_core.c
+libzfs_core_la_SOURCES = \
+	%D%/libzfs_core.c \
+	%D%/libzfs_core_impl.h
 
-KERNEL_C =
+if BUILD_LINUX
+libzfs_core_la_SOURCES += \
+	%D%/os/linux/libzfs_core_ioctl.c
+endif
 
-nodist_libzfs_core_la_SOURCES = \
-	$(USER_C) \
-	$(KERNEL_C)
+if BUILD_FREEBSD
+libzfs_core_la_CPPFLAGS += -Iinclude/os/freebsd/zfs
+
+libzfs_core_la_SOURCES += \
+	%D%/os/freebsd/libzfs_core_ioctl.c
+endif
 
 libzfs_core_la_LIBADD = \
-	$(top_builddir)/lib/libnvpair/libnvpair.la
+	libnvpair.la \
+	libspl.la
 
-libzfs_core_la_LDFLAGS = -version-info 1:0:0
+libzfs_core_la_LDFLAGS = -version-info 3:0:0
 
-EXTRA_DIST = $(USER_C)
+if !ASAN_ENABLED
+libzfs_core_la_LDFLAGS += -Wl,-z,defs
+endif
+
+if BUILD_FREEBSD
+libzfs_core_la_LIBADD += -lutil -lgeom
+endif
+
+pkgconfig_DATA += %D%/libzfs_core.pc
+
+dist_noinst_DATA += %D%/libzfs_core.abi %D%/libzfs_core.suppr

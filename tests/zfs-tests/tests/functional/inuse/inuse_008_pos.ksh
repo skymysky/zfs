@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -61,15 +52,15 @@ function cleanup
 	cleanup_devices $vdisks $sdisks
 }
 
-function verify_assertion #slices
+function verify_assertion # disks
 {
 	typeset targets=$1
 
 	for t in $targets; do
-		echo "y" | newfs -v $t > /dev/null 2>&1
-		(( $? !=0 )) && \
+		if ! new_fs $t; then
 			log_fail "newfs over exported pool " \
-				"failes unexpected."
+				"fails unexpectedly."
+		fi
 	done
 
 	return 0
@@ -82,31 +73,14 @@ log_onexit cleanup
 set -A vdevs "" "mirror" "raidz" "raidz1" "raidz2"
 
 typeset -i i=0
-typeset cyl=""
-
-for num in 0 1 2 3 ; do
-	eval typeset disk=\${FS_DISK$num}
-	zero_partitions $disk
-done
-
-for num in 0 1 2 3 ; do
-	eval typeset slice=\${FS_SIDE$num}
-	disk=${slice%${SLICE_PREFIX}*}
-	slice=${slice##*${SLICE_PREFIX}}
-	log_must set_partition $slice "$cyl" $FS_SIZE $disk
-	cyl=$(get_endslice $disk $slice)
-done
-
 while (( i < ${#vdevs[*]} )); do
-	if [[ -n $SINGLE_DISK && -n ${vdevs[i]} ]]; then
-		(( i = i + 1 ))
-		continue
-	fi
+	typeset spare="spare $sdisks"
 
-	create_pool $TESTPOOL1 ${vdevs[i]} $vslices spare $sslices
+	# If this is for raidz2, use 3 disks for the pool.
+	[[ ${vdevs[i]} = "raidz2" ]] && spare="$sdisks"
+	create_pool $TESTPOOL1 ${vdevs[i]} $vdisks $spare
 	log_must zpool export $TESTPOOL1
 	verify_assertion "$rawtargets"
-	cleanup_devices $vslices $sslices
 
 	(( i = i + 1 ))
 done

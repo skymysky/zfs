@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (C) 2016 Gvozden Nešković. All rights reserved.
@@ -29,6 +20,9 @@
 #include <sys/debug.h>
 #include <sys/kstat.h>
 #include <sys/abd.h>
+#include <sys/vdev_impl.h>
+#include <sys/abd_impl.h>
+#include <sys/zfs_rlock.h>
 
 #ifdef  __cplusplus
 extern "C" {
@@ -69,8 +63,8 @@ enum raidz_rec_op {
 	RAIDZ_REC_NUM = 7
 };
 
-extern const char *raidz_gen_name[RAIDZ_GEN_NUM];
-extern const char *raidz_rec_name[RAIDZ_REC_NUM];
+extern const char *const raidz_gen_name[RAIDZ_GEN_NUM];
+extern const char *const raidz_rec_name[RAIDZ_REC_NUM];
 
 /*
  * Methods used to define raidz implementation
@@ -90,7 +84,7 @@ typedef boolean_t	(*will_work_f)(void);
 typedef void		(*init_impl_f)(void);
 typedef void		(*fini_impl_f)(void);
 
-#define	RAIDZ_IMPL_NAME_MAX	(16)
+#define	RAIDZ_IMPL_NAME_MAX	(20)
 
 typedef struct raidz_impl_ops {
 	init_impl_f init;
@@ -101,56 +95,96 @@ typedef struct raidz_impl_ops {
 	char name[RAIDZ_IMPL_NAME_MAX];	/* Name of the implementation */
 } raidz_impl_ops_t;
 
+
 typedef struct raidz_col {
-	size_t rc_devidx;		/* child device index for I/O */
-	size_t rc_offset;		/* device offset */
-	size_t rc_size;			/* I/O size */
+	int rc_devidx;			/* child device index for I/O */
+	uint32_t rc_size;		/* I/O size */
+	uint64_t rc_offset;		/* device offset */
+	abd_t rc_abdstruct;		/* rc_abd probably points here */
 	abd_t *rc_abd;			/* I/O data */
-	void *rc_gdata;			/* used to store the "good" version */
+	abd_t *rc_orig_data;		/* pre-reconstruction */
 	int rc_error;			/* I/O error for this device */
-	unsigned int rc_tried;		/* Did we attempt this I/O column? */
-	unsigned int rc_skipped;	/* Did we skip this I/O column? */
+	uint8_t rc_tried:1;		/* Did we attempt this I/O column? */
+	uint8_t rc_skipped:1;		/* Did we skip this I/O column? */
+	uint8_t rc_need_orig_restore:1;	/* need to restore from orig_data? */
+	uint8_t rc_force_repair:1;	/* Write good data to this column */
+	uint8_t rc_allow_repair:1;	/* Allow repair I/O to this column */
+	uint8_t rc_tgt_is_dspare:1;	/* The target is draid spare vdev */
+	uint8_t rc_latency_outlier:1;	/* Latency outlier for this device */
+	int rc_shadow_devidx;		/* for double write during expansion */
+	int rc_shadow_error;		/* for double write during expansion */
+	uint64_t rc_shadow_offset;	/* for double write during expansion */
 } raidz_col_t;
 
+typedef struct raidz_row {
+	int rr_cols;			/* Regular column count */
+	int rr_scols;			/* Count including skipped columns */
+	int rr_bigcols;			/* Remainder data column count */
+	int rr_missingdata;		/* Count of missing data devices */
+	int rr_missingparity;		/* Count of missing parity devices */
+	int rr_firstdatacol;		/* First data column/parity count */
+	abd_t *rr_abd_empty;		/* dRAID empty sector buffer */
+	int rr_nempty;			/* empty sectors included in parity */
+	int rr_outlier_cnt;		/* Count of latency outlier devices */
+	boolean_t rr_old_layout;	/* Not yet reflowed by an expansion */
+#ifdef ZFS_DEBUG
+	uint64_t rr_offset;		/* Logical offset for *_io_verify() */
+	uint64_t rr_size;		/* Physical size for *_io_verify() */
+#endif
+	raidz_col_t rr_col[];		/* Flexible array of I/O columns */
+} raidz_row_t;
+
 typedef struct raidz_map {
-	size_t rm_cols;			/* Regular column count */
-	size_t rm_scols;		/* Count including skipped columns */
-	size_t rm_bigcols;		/* Number of oversized columns */
-	size_t rm_asize;		/* Actual total I/O size */
-	size_t rm_missingdata;		/* Count of missing data devices */
-	size_t rm_missingparity;	/* Count of missing parity devices */
-	size_t rm_firstdatacol;		/* First data column/parity count */
-	size_t rm_nskip;		/* Skipped sectors for padding */
-	size_t rm_skipstart;		/* Column index of padding start */
-	abd_t *rm_abd_copy;		/* rm_asize-buffer of copied data */
-	size_t rm_reports;		/* # of referencing checksum reports */
-	unsigned int rm_freed;		/* map no longer has referencing ZIO */
-	unsigned int rm_ecksuminjected;	/* checksum error was injected */
-	raidz_impl_ops_t *rm_ops;	/* RAIDZ math operations */
-	raidz_col_t rm_col[1];		/* Flexible array of I/O columns */
+	boolean_t rm_ecksuminjected;	/* checksum error was injected */
+	int rm_nrows;			/* Regular row count */
+	int rm_nskip;			/* RAIDZ sectors skipped for padding */
+	int rm_skipstart;		/* Column index of padding start */
+	int rm_original_width;		/* pre-expansion width of raidz vdev */
+	int rm_nphys_cols;		/* num entries in rm_phys_col[] */
+	zfs_locked_range_t *rm_lr;
+	const raidz_impl_ops_t *rm_ops;	/* RAIDZ math operations */
+	raidz_col_t *rm_phys_col;	/* if non-NULL, read i/o aggregation */
+	raidz_row_t *rm_row[];		/* flexible array of rows */
 } raidz_map_t;
+
+/*
+ * Nodes in vdev_raidz_t:vd_expand_txgs.
+ * Blocks with physical birth time of re_txg or later have the specified
+ * logical width (until the next node).
+ */
+typedef struct reflow_node {
+	uint64_t re_txg;
+	uint64_t re_logical_width;
+	avl_node_t re_link;
+} reflow_node_t;
+
 
 #define	RAIDZ_ORIGINAL_IMPL	(INT_MAX)
 
 extern const raidz_impl_ops_t vdev_raidz_scalar_impl;
-#if defined(__x86_64) && defined(HAVE_SSE2)	/* only x86_64 for now */
+extern boolean_t raidz_will_scalar_work(void);
+
+#if defined(__x86_64) && HAVE_SIMD(SSE2)	/* only x86_64 for now */
 extern const raidz_impl_ops_t vdev_raidz_sse2_impl;
 #endif
-#if defined(__x86_64) && defined(HAVE_SSSE3)	/* only x86_64 for now */
+#if defined(__x86_64) && HAVE_SIMD(SSSE3)	/* only x86_64 for now */
 extern const raidz_impl_ops_t vdev_raidz_ssse3_impl;
 #endif
-#if defined(__x86_64) && defined(HAVE_AVX2)	/* only x86_64 for now */
+#if defined(__x86_64) && HAVE_SIMD(AVX2)	/* only x86_64 for now */
 extern const raidz_impl_ops_t vdev_raidz_avx2_impl;
 #endif
-#if defined(__x86_64) && defined(HAVE_AVX512F)	/* only x86_64 for now */
+#if defined(__x86_64) && HAVE_SIMD(AVX512F)	/* only x86_64 for now */
 extern const raidz_impl_ops_t vdev_raidz_avx512f_impl;
 #endif
-#if defined(__x86_64) && defined(HAVE_AVX512BW)	/* only x86_64 for now */
+#if defined(__x86_64) && HAVE_SIMD(AVX512BW)	/* only x86_64 for now */
 extern const raidz_impl_ops_t vdev_raidz_avx512bw_impl;
 #endif
 #if defined(__aarch64__)
 extern const raidz_impl_ops_t vdev_raidz_aarch64_neon_impl;
 extern const raidz_impl_ops_t vdev_raidz_aarch64_neonx2_impl;
+#endif
+#if defined(__powerpc__)
+extern const raidz_impl_ops_t vdev_raidz_powerpc_altivec_impl;
 #endif
 
 /*
@@ -158,14 +192,15 @@ extern const raidz_impl_ops_t vdev_raidz_aarch64_neonx2_impl;
  *
  * raidz_parity		Returns parity of the RAIDZ block
  * raidz_ncols		Returns number of columns the block spans
- * raidz_nbigcols	Returns number of big columns columns
+ *			Note, all rows have the same number of columns.
+ * raidz_nbigcols	Returns number of big columns
  * raidz_col_p		Returns pointer to a column
  * raidz_col_size	Returns size of a column
  * raidz_big_size	Returns size of big columns
  * raidz_short_size	Returns size of short columns
  */
-#define	raidz_parity(rm)	((rm)->rm_firstdatacol)
-#define	raidz_ncols(rm)		((rm)->rm_cols)
+#define	raidz_parity(rm)	((rm)->rm_row[0]->rr_firstdatacol)
+#define	raidz_ncols(rm)		((rm)->rm_row[0]->rr_cols)
 #define	raidz_nbigcols(rm)	((rm)->rm_bigcols)
 #define	raidz_col_p(rm, c)	((rm)->rm_col + (c))
 #define	raidz_col_size(rm, c)	((rm)->rm_col[c].rc_size)
@@ -180,10 +215,10 @@ extern const raidz_impl_ops_t vdev_raidz_aarch64_neonx2_impl;
  */
 #define	_RAIDZ_GEN_WRAP(code, impl)					\
 static void								\
-impl ## _gen_ ## code(void *rmp)					\
+impl ## _gen_ ## code(void *rrp)					\
 {									\
-	raidz_map_t *rm = (raidz_map_t *)rmp;				\
-	raidz_generate_## code ## _impl(rm);				\
+	raidz_row_t *rr = (raidz_row_t *)rrp;				\
+	raidz_generate_## code ## _impl(rr);				\
 }
 
 /*
@@ -194,10 +229,10 @@ impl ## _gen_ ## code(void *rmp)					\
  */
 #define	_RAIDZ_REC_WRAP(code, impl)					\
 static int								\
-impl ## _rec_ ## code(void *rmp, const int *tgtidx)			\
+impl ## _rec_ ## code(void *rrp, const int *tgtidx)			\
 {									\
-	raidz_map_t *rm = (raidz_map_t *)rmp;				\
-	return (raidz_reconstruct_## code ## _impl(rm, tgtidx));	\
+	raidz_row_t *rr = (raidz_row_t *)rrp;				\
+	return (raidz_reconstruct_## code ## _impl(rr, tgtidx));	\
 }
 
 /*
@@ -302,7 +337,7 @@ vdev_raidz_exp2(const uint8_t a, const unsigned exp)
  * Galois Field operations.
  *
  * gf_exp2	- computes 2 raised to the given power
- * gf_exp2	- computes 4 raised to the given power
+ * gf_exp4	- computes 4 raised to the given power
  * gf_mul	- multiplication
  * gf_div	- division
  * gf_inv	- multiplicative inverse

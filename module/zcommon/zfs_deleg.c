@@ -1,49 +1,39 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2010 Nexenta Systems, Inc. All rights reserved.
- * Copyright (c) 2013 by Delphix. All rights reserved.
+ * Copyright (c) 2013, 2015 by Delphix. All rights reserved.
  * Copyright 2016 Igor Kozhukhov <ikozhukhov@gmail.com>
  */
 
 #include <sys/zfs_context.h>
 
 #if defined(_KERNEL)
-#include <sys/systm.h>
 #include <sys/sunddi.h>
 #include <sys/ctype.h>
 #else
 #include <stdio.h>
 #include <unistd.h>
-#include <strings.h>
 #include <libnvpair.h>
 #include <ctype.h>
 #endif
+#include <sys/string.h>
 #include <sys/dsl_deleg.h>
 #include "zfs_prop.h"
 #include "zfs_deleg.h"
 #include "zfs_namecheck.h"
 
-zfs_deleg_perm_tab_t zfs_deleg_perm_tab[] = {
+const zfs_deleg_perm_tab_t zfs_deleg_perm_tab[] = {
 	{ZFS_DELEG_PERM_ALLOW},
 	{ZFS_DELEG_PERM_BOOKMARK},
 	{ZFS_DELEG_PERM_CLONE},
@@ -53,11 +43,14 @@ zfs_deleg_perm_tab_t zfs_deleg_perm_tab[] = {
 	{ZFS_DELEG_PERM_MOUNT},
 	{ZFS_DELEG_PERM_PROMOTE},
 	{ZFS_DELEG_PERM_RECEIVE},
+	{ZFS_DELEG_PERM_RECEIVE_APPEND},
 	{ZFS_DELEG_PERM_RENAME},
 	{ZFS_DELEG_PERM_ROLLBACK},
 	{ZFS_DELEG_PERM_SNAPSHOT},
 	{ZFS_DELEG_PERM_SHARE},
 	{ZFS_DELEG_PERM_SEND},
+	{ZFS_DELEG_PERM_SEND_RAW},
+	{ZFS_DELEG_PERM_SEND_ENCRYPTED},
 	{ZFS_DELEG_PERM_USERPROP},
 	{ZFS_DELEG_PERM_USERQUOTA},
 	{ZFS_DELEG_PERM_GROUPQUOTA},
@@ -71,6 +64,10 @@ zfs_deleg_perm_tab_t zfs_deleg_perm_tab[] = {
 	{ZFS_DELEG_PERM_RELEASE},
 	{ZFS_DELEG_PERM_LOAD_KEY},
 	{ZFS_DELEG_PERM_CHANGE_KEY},
+	{ZFS_DELEG_PERM_PROJECTUSED},
+	{ZFS_DELEG_PERM_PROJECTQUOTA},
+	{ZFS_DELEG_PERM_PROJECTOBJUSED},
+	{ZFS_DELEG_PERM_PROJECTOBJQUOTA},
 	{NULL}
 };
 
@@ -86,15 +83,12 @@ zfs_valid_permission_name(const char *perm)
 const char *
 zfs_deleg_canonicalize_perm(const char *perm)
 {
-	int i;
-	zfs_prop_t prop;
-
-	for (i = 0; zfs_deleg_perm_tab[i].z_perm != NULL; i++) {
+	for (int i = 0; zfs_deleg_perm_tab[i].z_perm != NULL; i++) {
 		if (strcmp(perm, zfs_deleg_perm_tab[i].z_perm) == 0)
 			return (perm);
 	}
 
-	prop = zfs_name_to_prop(perm);
+	zfs_prop_t prop = zfs_name_to_prop(perm);
 	if (prop != ZPROP_INVAL && zfs_prop_delegatable(prop))
 		return (zfs_prop_to_name(prop));
 	return (NULL);
@@ -102,9 +96,9 @@ zfs_deleg_canonicalize_perm(const char *perm)
 }
 
 static int
-zfs_validate_who(char *who)
+zfs_validate_who(const char *who)
 {
-	char *p;
+	const char *p;
 
 	if (who[2] != ZFS_DELEG_FIELD_SEP_CHR)
 		return (-1);
@@ -239,7 +233,7 @@ zfs_deleg_whokey(char *attr, zfs_deleg_who_type_t type,
 	}
 }
 
-#if defined(_KERNEL) && defined(HAVE_SPL)
+#if defined(_KERNEL)
 EXPORT_SYMBOL(zfs_deleg_verify_nvlist);
 EXPORT_SYMBOL(zfs_deleg_whokey);
 EXPORT_SYMBOL(zfs_deleg_canonicalize_perm);

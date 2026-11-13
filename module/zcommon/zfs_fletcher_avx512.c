@@ -1,42 +1,35 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (C) 2016 Gvozden Nešković. All rights reserved.
  */
 
-#if defined(__x86_64) && defined(HAVE_AVX512F)
+#if defined(__x86_64) && HAVE_SIMD(AVX512F)
 
-#include <linux/simd_x86.h>
 #include <sys/byteorder.h>
 #include <sys/frame.h>
 #include <sys/spa_checksum.h>
+#include <sys/string.h>
+#include <sys/simd.h>
 #include <zfs_fletcher.h>
-#include <strings.h>
 
+#ifdef __linux__
 #define	__asm __asm__ __volatile__
+#endif
 
 static void
 fletcher_4_avx512f_init(fletcher_4_ctx_t *ctx)
 {
-	bzero(ctx->avx512, 4 * sizeof (zfs_fletcher_avx512_t));
+	memset(ctx->avx512, 0, 4 * sizeof (zfs_fletcher_avx512_t));
 }
 
 static void
@@ -92,21 +85,17 @@ fletcher_4_avx512f_native(fletcher_4_ctx_t *ctx, const void *buf, uint64_t size)
 	const uint32_t *ip = buf;
 	const uint32_t *ipend = (uint32_t *)((uint8_t *)ip + size);
 
-	kfpu_begin();
-
 	FLETCHER_4_AVX512_RESTORE_CTX(ctx);
 
-	for (; ip < ipend; ip += 8) {
+	do {
 		__asm("vpmovzxdq %0, %%zmm4"::"m" (*ip));
 		__asm("vpaddq %zmm4, %zmm0, %zmm0");
 		__asm("vpaddq %zmm0, %zmm1, %zmm1");
 		__asm("vpaddq %zmm1, %zmm2, %zmm2");
 		__asm("vpaddq %zmm2, %zmm3, %zmm3");
-	}
+	} while ((ip += 8) < ipend);
 
 	FLETCHER_4_AVX512_SAVE_CTX(ctx);
-
-	kfpu_end();
 }
 STACK_FRAME_NON_STANDARD(fletcher_4_avx512f_native);
 
@@ -118,8 +107,6 @@ fletcher_4_avx512f_byteswap(fletcher_4_ctx_t *ctx, const void *buf,
 	const uint32_t *ip = buf;
 	const uint32_t *ipend = (uint32_t *)((uint8_t *)ip + size);
 
-	kfpu_begin();
-
 	FLETCHER_4_AVX512_RESTORE_CTX(ctx);
 
 	__asm("vpbroadcastq %0, %%zmm8" :: "r" (byteswap_mask));
@@ -127,7 +114,7 @@ fletcher_4_avx512f_byteswap(fletcher_4_ctx_t *ctx, const void *buf,
 	__asm("vpsllq $16, %zmm8, %zmm10");
 	__asm("vpsllq $24, %zmm8, %zmm11");
 
-	for (; ip < ipend; ip += 8) {
+	do {
 		__asm("vpmovzxdq %0, %%zmm5"::"m" (*ip));
 
 		__asm("vpsrlq $24, %zmm5, %zmm6");
@@ -146,18 +133,16 @@ fletcher_4_avx512f_byteswap(fletcher_4_ctx_t *ctx, const void *buf,
 		__asm("vpaddq %zmm0, %zmm1, %zmm1");
 		__asm("vpaddq %zmm1, %zmm2, %zmm2");
 		__asm("vpaddq %zmm2, %zmm3, %zmm3");
-	}
+	} while ((ip += 8) < ipend);
 
 	FLETCHER_4_AVX512_SAVE_CTX(ctx)
-
-	kfpu_end();
 }
 STACK_FRAME_NON_STANDARD(fletcher_4_avx512f_byteswap);
 
 static boolean_t
 fletcher_4_avx512f_valid(void)
 {
-	return (zfs_avx512f_available());
+	return (kfpu_allowed() && zfs_avx512f_available());
 }
 
 const fletcher_4_ops_t fletcher_4_avx512f_ops = {
@@ -168,7 +153,60 @@ const fletcher_4_ops_t fletcher_4_avx512f_ops = {
 	.fini_byteswap = fletcher_4_avx512f_fini,
 	.compute_byteswap = fletcher_4_avx512f_byteswap,
 	.valid = fletcher_4_avx512f_valid,
+	.uses_fpu = B_TRUE,
 	.name = "avx512f"
 };
 
-#endif /* defined(__x86_64) && defined(HAVE_AVX512F) */
+#if HAVE_SIMD(AVX512BW)
+static void
+fletcher_4_avx512bw_byteswap(fletcher_4_ctx_t *ctx, const void *buf,
+    uint64_t size)
+{
+	static const zfs_fletcher_avx512_t mask = {
+		.v = { 0xFFFFFFFF00010203, 0xFFFFFFFF08090A0B,
+		0xFFFFFFFF00010203, 0xFFFFFFFF08090A0B,
+		0xFFFFFFFF00010203, 0xFFFFFFFF08090A0B,
+		0xFFFFFFFF00010203, 0xFFFFFFFF08090A0B }
+	};
+	const uint32_t *ip = buf;
+	const uint32_t *ipend = (uint32_t *)((uint8_t *)ip + size);
+
+	FLETCHER_4_AVX512_RESTORE_CTX(ctx);
+
+	__asm("vmovdqu64 %0, %%zmm5" :: "m" (mask));
+
+	do {
+		__asm("vpmovzxdq %0, %%zmm4"::"m" (*ip));
+
+		__asm("vpshufb %zmm5, %zmm4, %zmm4");
+
+		__asm("vpaddq %zmm4, %zmm0, %zmm0");
+		__asm("vpaddq %zmm0, %zmm1, %zmm1");
+		__asm("vpaddq %zmm1, %zmm2, %zmm2");
+		__asm("vpaddq %zmm2, %zmm3, %zmm3");
+	} while ((ip += 8) < ipend);
+
+	FLETCHER_4_AVX512_SAVE_CTX(ctx)
+}
+STACK_FRAME_NON_STANDARD(fletcher_4_avx512bw_byteswap);
+
+static boolean_t
+fletcher_4_avx512bw_valid(void)
+{
+	return (fletcher_4_avx512f_valid() && zfs_avx512bw_available());
+}
+
+const fletcher_4_ops_t fletcher_4_avx512bw_ops = {
+	.init_native = fletcher_4_avx512f_init,
+	.fini_native = fletcher_4_avx512f_fini,
+	.compute_native = fletcher_4_avx512f_native,
+	.init_byteswap = fletcher_4_avx512f_init,
+	.fini_byteswap = fletcher_4_avx512f_fini,
+	.compute_byteswap = fletcher_4_avx512bw_byteswap,
+	.valid = fletcher_4_avx512bw_valid,
+	.uses_fpu = B_TRUE,
+	.name = "avx512bw"
+};
+#endif
+
+#endif /* defined(__x86_64) && HAVE_SIMD(AVX512F) */

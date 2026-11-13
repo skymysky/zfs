@@ -1,6 +1,5 @@
 #!/bin/ksh -p
-#
-# CDDL HEADER START
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -9,13 +8,12 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
-#
-# CDDL HEADER END
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
 # Copyright (c) 2017, Datto, Inc. All rights reserved.
+# Copyright (c) 2019, DilOS
 #
 
 . $STF_SUITE/include/libtest.shlib
@@ -37,7 +35,7 @@ verify_runnable "both"
 function cleanup
 {
 	datasetexists $TESTPOOL/$TESTFS1 && \
-		log_must zfs destroy -f $TESTPOOL/$TESTFS1
+		destroy_dataset $TESTPOOL/$TESTFS1 -f
 }
 
 log_onexit cleanup
@@ -52,7 +50,7 @@ set -A ENCRYPTION_ALGS \
 	"encryption=aes-256-gcm"
 
 set -A ENCRYPTION_PROPS \
-	"encryption=aes-256-ccm" \
+	"encryption=aes-256-gcm" \
 	"encryption=aes-128-ccm" \
 	"encryption=aes-192-ccm" \
 	"encryption=aes-256-ccm" \
@@ -75,7 +73,7 @@ typeset -i i=0
 while (( i < ${#ENCRYPTION_ALGS[*]} )); do
 	typeset -i j=0
 	while (( j < ${#KEYFORMATS[*]} )); do
-		log_must eval "echo -n ${USER_KEYS[j]} | zfs create" \
+		log_must eval "printf '%s' ${USER_KEYS[j]} | zfs create" \
 			"-o ${ENCRYPTION_ALGS[i]} -o ${KEYFORMATS[j]}" \
 			"$TESTPOOL/$TESTFS1"
 
@@ -88,7 +86,7 @@ while (( i < ${#ENCRYPTION_ALGS[*]} )); do
 		propertycheck $TESTPOOL/$TESTFS1 ${KEYFORMATS[j]} || \
 			log_fail "failed to set ${KEYFORMATS[j]}"
 
-		log_must zfs destroy -f $TESTPOOL/$TESTFS1
+		log_must_busy zfs destroy -f $TESTPOOL/$TESTFS1
 		(( j = j + 1 ))
 	done
 	(( i = i + 1 ))

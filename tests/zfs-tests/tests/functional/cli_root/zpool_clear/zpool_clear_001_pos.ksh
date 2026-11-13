@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -50,9 +41,7 @@ function cleanup
         poolexists $TESTPOOL1 && \
                 log_must zpool destroy -f $TESTPOOL1
 
-        for file in `ls $TEST_BASE_DIR/file.*`; do
-		log_must rm -f $file
-        done
+	log_must rm -f $fbase.{0..2}
 }
 
 
@@ -60,14 +49,8 @@ log_assert "Verify 'zpool clear' can clear errors of a storage pool."
 log_onexit cleanup
 
 #make raw files to create various configuration pools
-typeset -i i=0
-while (( i < 3 )); do
-	log_must truncate -s $FILESIZE $TEST_BASE_DIR/file.$i
-
-	(( i = i + 1 ))
-done
-
 fbase=$TEST_BASE_DIR/file
+log_must truncate -s $FILESIZE $fbase.{0..2}
 set -A poolconf "mirror $fbase.0 $fbase.1 $fbase.2" \
                 "raidz1 $fbase.0 $fbase.1 $fbase.2" \
                 "raidz2 $fbase.0 $fbase.1 $fbase.2"
@@ -75,59 +58,24 @@ set -A poolconf "mirror $fbase.0 $fbase.1 $fbase.2" \
 function check_err # <pool> [<vdev>]
 {
 	typeset pool=$1
-	shift
-	if (( $# > 0 )); then
-		typeset	checkvdev=$1
-	else
-		typeset checkvdev=""
-	fi
-	typeset -i errnum=0
-	typeset c_read=0
-	typeset c_write=0
-	typeset c_cksum=0
-	typeset tmpfile=/var/tmp/file.$$
-	typeset healthstr="pool '$pool' is healthy"
-	typeset output="`zpool status -x $pool`"
+	typeset	checkvdev=$2
 
-	[[ "$output" ==  "$healthstr" ]] && return $errnum
+	[ "$(zpool status -x $pool)" = "pool '$pool' is healthy" ] && return
 
-	zpool status -x $pool | grep -v "^$" | grep -v "pool:" \
-			| grep -v "state:" | grep -v "config:" \
-			| grep -v "errors:" > $tmpfile
-	typeset line
-	typeset -i fetchbegin=1
-	while read line; do
-		if (( $fetchbegin != 0 )); then
-                        echo $line | grep "NAME" >/dev/null 2>&1
-                        (( $? == 0 )) && (( fetchbegin = 0 ))
-                         continue
+	typeset -i skipstart=1
+	typeset vdev _ c_read c_write c_cksum rest
+	while read -r vdev _ c_read c_write c_cksum rest; do
+		if [ $skipstart -ne 0 ]; then
+			[ "$vdev" = "NAME" ] && skipstart=0
+                        continue
                 fi
 
-		if [[ -n $checkvdev ]]; then
-			echo $line | grep $checkvdev >/dev/null 2>&1
-			(( $? != 0 )) && continue
-			c_read=`echo $line | awk '{print $3}'`
-			c_write=`echo $line | awk '{print $4}'`
-			c_cksum=`echo $line | awk '{print $5}'`
-			if [ $c_read != 0 ] || [ $c_write != 0 ] || \
-			    [ $c_cksum != 0 ]
-			then
-				(( errnum = errnum + 1 ))
-			fi
-			break
+		if [ -n "$checkvdev" ]; then
+			[ "$vdev" = "$checkvdev" ] || continue
 		fi
 
-		c_read=`echo $line | awk '{print $3}'`
-		c_write=`echo $line | awk '{print $4}'`
-		c_cksum=`echo $line | awk '{print $5}'`
-		if [ $c_read != 0 ] || [ $c_write != 0 ] || \
-		    [ $c_cksum != 0 ]
-		then
-			(( errnum = errnum + 1 ))
-		fi
-	done <$tmpfile
-
-	return $errnum
+		[ $c_read$c_write$c_cksum = 000 ] || return
+	done < <(zpool status -x $pool | grep -ve "^$" -e "pool:" -e "state:" -e "config:" -e "errors:")
 }
 
 function do_testing #<clear type> <vdevs>
@@ -137,6 +85,7 @@ function do_testing #<clear type> <vdevs>
 	typeset type=$1
 	shift
 	typeset vdev="$@"
+	(( i = $RANDOM % 3 ))
 
 	log_must zpool create -f $TESTPOOL1 $vdev
 	log_must zfs create $FS
@@ -146,14 +95,13 @@ function do_testing #<clear type> <vdevs>
 	#
 	avail=$(get_prop available $FS)
 	fill_mb=$(((avail / 1024 / 1024) * 25 / 100))
-	log_must dd if=/dev/urandom of=$file.$i bs=$BLOCKSZ count=$fill_mb
+	log_must dd if=/dev/urandom of=$file bs=$BLOCKSZ count=$fill_mb
 
 	#
 	# Make errors to the testing pool by overwrite the vdev device with
-	# /usr/bin/dd command. We do not want to have a full overwrite. That
+	# dd command. We do not want to have a full overwrite. That
 	# may cause the system panic. So, we should skip the vdev label space.
 	#
-	(( i = $RANDOM % 3 ))
 	typeset -i wcount=0
 	typeset -i size
 	case $FILESIZE in
@@ -173,28 +121,19 @@ function do_testing #<clear type> <vdevs>
 			(( wcount = FILESIZE/1024 - 512 ))
 			;;
 	esac
-	dd if=/dev/zero of=$fbase.$i seek=512 bs=1024 count=$wcount conv=notrunc \
-			> /dev/null 2>&1
-	log_must sync
-	log_must zpool scrub $TESTPOOL1
-	# Wait for the completion of scrub operation
-	while is_pool_scrubbing $TESTPOOL1; do
-		sleep 1
-	done
+	dd if=/dev/zero of=$fbase.$i seek=512 bs=1024 count=$wcount conv=notrunc 2>/dev/null
+	sync_all_pools
+	log_must sync #ensure the vdev files are written out
+	log_must zpool scrub -w $TESTPOOL1
 
-	check_err $TESTPOOL1 && \
-		log_fail "No error generated."
-	if [[ $type == "device" ]]; then
-		log_must zpool clear $TESTPOOL1 $fbase.$i
-		! check_err $TESTPOOL1 $fbase.$i && \
-		    log_fail "'zpool clear' fails to clear error for $fbase.$i device."
+	log_mustnot check_err $TESTPOOL1
+	typeset dev=
+	if [ "$type" = "device" ]; then
+		dev=$fbase.$i
 	fi
 
-	if [[ $type == "pool" ]]; then
-		log_must zpool clear $TESTPOOL1
-		! check_err $TESTPOOL1 && \
-		    log_fail "'zpool clear' fails to clear error for pool $TESTPOOL1."
-	fi
+	log_must zpool clear $TESTPOOL1 $dev
+	log_must check_err $TESTPOOL1 $dev
 
 	log_must zpool destroy $TESTPOOL1
 }

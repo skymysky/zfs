@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -47,22 +38,15 @@ verify_runnable "global"
 
 function cleanup
 {
-	for pool in $TESTPOOL $TESTPOOL1 $TESTPOOL2 $TESTPOOL3 $TESTPOOL4 \
-		$TESTPOOL5 $TESTPOOL6
-	do
+	for pool in $TESTPOOL $TESTPOOL1; do
 		poolexists $pool && destroy_pool $pool
 	done
 
-	clean_blockfile "$TESTDIR0 $TESTDIR1"
-
-	for file in $FILEDISK0 $FILEDISK1 $FILEDISK2
-	do
-		if [[ -e $file ]]; then
-			rm -f $TEST_BASE_DIR/$file
-		fi
-	done
-
-	partition_disk $SIZE $disk 6
+	rm -f $disk1 $disk2
+	if is_freebsd; then
+		umount -f $TESTDIR
+		rm -rf $TESTDIR
+	fi
 }
 
 log_onexit cleanup
@@ -70,57 +54,66 @@ log_onexit cleanup
 log_assert "'zpool create -f <pool> <vspec> ...' can successfully create" \
 	"a new pool in some cases."
 
-if [[ -n $DISK ]]; then
-	disk=$DISK
-else
-	disk=$DISK0
-fi
-create_pool "$TESTPOOL" "${disk}${SLICE_PREFIX}${SLICE0}"
-log_must echo "y" | newfs \
-	${DEV_RDSKDIR}/${disk}${SLICE_PREFIX}${SLICE1} >/dev/null 2>&1
-create_blockfile $FILESIZE $TESTDIR0/$FILEDISK0 ${disk}${SLICE_PREFIX}${SLICE4}
-create_blockfile $FILESIZE1 $TESTDIR1/$FILEDISK1 ${disk}${SLICE_PREFIX}${SLICE5}
-log_must truncate -s $SIZE $TEST_BASE_DIR/$FILEDISK0
-log_must truncate -s $SIZE $TEST_BASE_DIR/$FILEDISK1
-log_must truncate -s $SIZE $TEST_BASE_DIR/$FILEDISK2
+create_pool $TESTPOOL $DISK0
+log_must eval "new_fs ${DEV_RDSKDIR}/${DISK1} >/dev/null 2>&1"
+typeset disk1=$(create_blockfile $FILESIZE)
+typeset disk2=$(create_blockfile $FILESIZE1)
 
 unset NOINUSE_CHECK
 log_must zpool export $TESTPOOL
 log_note "'zpool create' without '-f' will fail " \
-	"while device is belong to an exported pool."
-log_mustnot zpool create "$TESTPOOL1" "${disk}${SLICE_PREFIX}${SLICE0}"
-create_pool "$TESTPOOL1" "${disk}${SLICE_PREFIX}${SLICE0}"
+	"while device belongs to an exported pool."
+log_mustnot zpool create $TESTPOOL1 $DISK0
+create_pool $TESTPOOL1 $DISK0
 log_must poolexists $TESTPOOL1
 
+log_must destroy_pool $TESTPOOL1
+
 log_note "'zpool create' without '-f' will fail " \
-	"while device is using by an ufs filesystem."
-log_mustnot zpool create "$TESTPOOL2" "${disk}${SLICE_PREFIX}${SLICE1}"
-create_pool "$TESTPOOL2" "${disk}${SLICE_PREFIX}${SLICE1}"
-log_must poolexists $TESTPOOL2
+	"while device is in use by a ufs filesystem."
+if is_freebsd; then
+	# fs must be mounted for create to fail on FreeBSD
+	log_must mkdir -p $TESTDIR
+	log_must mount ${DEV_DSKDIR}/${DISK1} $TESTDIR
+fi
+log_mustnot zpool create $TESTPOOL $DISK1
+if is_freebsd; then
+	# fs must not be mounted to create pool even with -f
+	log_must umount -f $TESTDIR
+	log_must rm -rf $TESTDIR
+fi
+create_pool $TESTPOOL $DISK1
+log_must poolexists $TESTPOOL
+
+log_must destroy_pool $TESTPOOL
 
 log_note "'zpool create' mirror without '-f' will fail " \
 	"while devices have different size."
-log_mustnot zpool create "$TESTPOOL3" "mirror" $TESTDIR0/$FILEDISK0 \
-	$TESTDIR1/$FILEDISK1
-create_pool "$TESTPOOL3" "mirror" $TESTDIR0/$FILEDISK0 $TESTDIR1/$FILEDISK1
-log_must poolexists $TESTPOOL3
+log_mustnot zpool create $TESTPOOL mirror $disk1 $disk2
+create_pool $TESTPOOL mirror $disk1 $disk2
+log_must poolexists $TESTPOOL
 
-log_note "'zpool create' mirror without '-f' will fail " \
-	"while devices are of different types."
-log_mustnot zpool create "$TESTPOOL4" "mirror" $TEST_BASE_DIR/$FILEDISK0 \
-	${disk}${SLICE_PREFIX}${SLICE3}
-create_pool "$TESTPOOL4" "mirror" \
-	$TEST_BASE_DIR/$FILEDISK0 ${disk}${SLICE_PREFIX}${SLICE3}
-log_must poolexists $TESTPOOL4
+log_must destroy_pool $TESTPOOL
+
+if ! is_freebsd; then
+	log_note "'zpool create' mirror without '-f' will fail " \
+		"while devices are of different types."
+	log_mustnot zpool create $TESTPOOL mirror $disk1 $DISK0
+	create_pool $TESTPOOL mirror $disk1 $DISK0
+	log_must poolexists $TESTPOOL
+
+	log_must destroy_pool $TESTPOOL
+fi
 
 log_note "'zpool create' without '-f' will fail " \
-	"while device is part of potentially active pool."
-create_pool "$TESTPOOL5"  "mirror" $TEST_BASE_DIR/$FILEDISK1 \
-	$TEST_BASE_DIR/$FILEDISK2
-log_must zpool offline $TESTPOOL5 $TEST_BASE_DIR/$FILEDISK2
-log_must zpool export $TESTPOOL5
-log_mustnot zpool create "$TESTPOOL6" $TEST_BASE_DIR/$FILEDISK2
-create_pool $TESTPOOL6 $TEST_BASE_DIR/$FILEDISK2
-log_must poolexists $TESTPOOL6
+	"while a device is part of a potentially active pool."
+create_pool $TESTPOOL mirror $DISK0 $DISK1
+log_must zpool offline $TESTPOOL $DISK0
+log_must zpool export $TESTPOOL
+log_mustnot zpool create $TESTPOOL1 $DISK0
+create_pool $TESTPOOL1 $DISK0
+log_must poolexists $TESTPOOL1
+
+log_must destroy_pool $TESTPOOL1
 
 log_pass "'zpool create -f <pool> <vspec> ...' success."

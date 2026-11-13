@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 # Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
@@ -43,15 +34,11 @@
 function cleanup {
 	typeset file
 
-	for file in /tmp/output.$$ /tmp/expected-output.$$ \
+	for file in $TEST_BASE_DIR/output.$$ $TEST_BASE_DIR/expected-output.$$ \
 		$TESTDIR/myfile.$$ ; do
 		log_must rm -f $file
 	done
 }
-
-if is_linux; then
-	log_unsupported "Test case isn't applicable to Linux"
-fi
 
 log_assert "special . and .. dirs work as expected for xattrs"
 log_onexit cleanup
@@ -61,15 +48,15 @@ log_must touch $TESTDIR/myfile.$$
 create_xattr $TESTDIR/myfile.$$ passwd /etc/passwd
 
 # listing the directory .
-log_must eval "runat $TESTDIR/myfile.$$ ls  . > /tmp/output.$$"
-create_expected_output  /tmp/expected-output.$$  \
+log_must eval "runat $TESTDIR/myfile.$$ ls  . > $TEST_BASE_DIR/output.$$"
+create_expected_output  $TEST_BASE_DIR/expected-output.$$  \
     SUNWattr_ro  SUNWattr_rw  passwd
-log_must diff /tmp/output.$$ /tmp/expected-output.$$
+log_must diff $TEST_BASE_DIR/output.$$ $TEST_BASE_DIR/expected-output.$$
 # list the directory . long form
-log_must eval "runat $TESTDIR/myfile.$$ ls -a . > /tmp/output.$$"
-create_expected_output  /tmp/expected-output.$$ . ..  \
+log_must eval "runat $TESTDIR/myfile.$$ ls -a . > $TEST_BASE_DIR/output.$$"
+create_expected_output  $TEST_BASE_DIR/expected-output.$$ . ..  \
     SUNWattr_ro  SUNWattr_rw  passwd
-log_must diff /tmp/output.$$ /tmp/expected-output.$$
+log_must diff $TEST_BASE_DIR/output.$$ $TEST_BASE_DIR/expected-output.$$
 
 # list the directory .. expecting one file
 OUTPUT=$(runat $TESTDIR/myfile.$$ ls ..)

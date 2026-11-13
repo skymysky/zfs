@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (C) 2016 Romain Dolbeau. All rights reserved.
@@ -25,12 +16,16 @@
 
 #include <sys/isa_defs.h>
 
-#if defined(__x86_64) && defined(HAVE_AVX512BW)
+#if defined(__x86_64) && HAVE_SIMD(AVX512BW)
 
+#include <sys/param.h>
 #include <sys/types.h>
-#include <linux/simd_x86.h>
+#include <sys/simd.h>
 
+
+#ifdef __linux__
 #define	__asm __asm__ __volatile__
+#endif
 
 #define	_REG_CNT(_0, _1, _2, _3, _4, _5, _6, _7, N, ...) N
 #define	REG_CNT(r...) _REG_CNT(r, 8, 7, 6, 5, 4, 3, 2, 1)
@@ -57,7 +52,7 @@
 #define	_R_23(_0, _1, REG2, REG3, ...) REG2, REG3
 #define	R_23(REG...) _R_23(REG, 1, 2, 3)
 
-#define	ASM_BUG()	ASSERT(0)
+#define	ZFS_ASM_BUG()	ASSERT(0)
 
 extern const uint8_t gf_clmul_mod_lt[4*256][16];
 
@@ -85,7 +80,7 @@ typedef struct v {
 		    : : [SRC] "r" (src));				\
 		break;							\
 	default:							\
-		ASM_BUG();						\
+		ZFS_ASM_BUG();						\
 	}								\
 }
 
@@ -105,7 +100,7 @@ typedef struct v {
 		    "vpxorq %" VR1(r) ", %" VR3(r)", %" VR3(r));	\
 		break;							\
 	default:							\
-		ASM_BUG();						\
+		ZFS_ASM_BUG();						\
 	}								\
 }
 
@@ -127,7 +122,7 @@ typedef struct v {
 		    "vmovdqa64 %" VR1(r) ", %" VR3(r));			\
 		break;							\
 	default:							\
-		ASM_BUG();						\
+		ZFS_ASM_BUG();						\
 	}								\
 }
 
@@ -149,7 +144,7 @@ typedef struct v {
 		    : : [SRC] "r" (src));				\
 		break;							\
 	default:							\
-		ASM_BUG();						\
+		ZFS_ASM_BUG();						\
 	}								\
 }
 
@@ -171,7 +166,7 @@ typedef struct v {
 		    : : [DST] "r" (dst));				\
 		break;							\
 	default:							\
-		ASM_BUG();						\
+		ZFS_ASM_BUG();						\
 	}								\
 }
 
@@ -197,7 +192,7 @@ typedef struct v {
 		    "vmovdqu8   %zmm13,     %" VR1(r) "{%k2}");		\
 		break;							\
 	default:							\
-		ASM_BUG();						\
+		ZFS_ASM_BUG();						\
 	}								\
 }
 
@@ -212,7 +207,7 @@ typedef struct v {
 	    _MUL2(r);							\
 	    break;							\
 	default:							\
-		ASM_BUG();						\
+		ZFS_ASM_BUG();						\
 	}								\
 }
 
@@ -273,7 +268,7 @@ static const uint8_t __attribute__((aligned(64))) _mul_mask = 0x0F;
 		    [lt] "r" (gf_clmul_mod_lt[4*(c)]));			\
 		break;							\
 	default:							\
-		ASM_BUG();						\
+		ZFS_ASM_BUG();						\
 	}								\
 }
 
@@ -288,12 +283,12 @@ static const uint8_t __attribute__((aligned(64))) _mul_mask = 0x0F;
 		_MULx2(c, R_01(r));					\
 		break;							\
 	default:							\
-		ASM_BUG();						\
+		ZFS_ASM_BUG();						\
 	}								\
 }
 
-#define	raidz_math_begin()	kfpu_begin()
-#define	raidz_math_end()	kfpu_end()
+#define	raidz_math_begin(ctx)	kfpu_begin(ctx)
+#define	raidz_math_end(ctx)	kfpu_end(ctx)
 
 /*
  * ZERO, COPY, and MUL operations are already 2x unrolled, which means that
@@ -393,9 +388,8 @@ DEFINE_REC_METHODS(avx512bw);
 static boolean_t
 raidz_will_avx512bw_work(void)
 {
-	return (zfs_avx_available() &&
-	    zfs_avx512f_available() &&
-	    zfs_avx512bw_available());
+	return (kfpu_allowed() && zfs_avx_available() &&
+	    zfs_avx512f_available() && zfs_avx512bw_available());
 }
 
 const raidz_impl_ops_t vdev_raidz_avx512bw_impl = {
@@ -407,4 +401,4 @@ const raidz_impl_ops_t vdev_raidz_avx512bw_impl = {
 	.name = "avx512bw"
 };
 
-#endif /* defined(__x86_64) && defined(HAVE_AVX512BW) */
+#endif /* defined(__x86_64) && HAVE_SIMD(AVX512BW) */

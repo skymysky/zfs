@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -51,8 +42,8 @@ log_onexit cleanup
 log_assert "Check the basic function of {user|group} used"
 
 sync_pool
-typeset user_used=$(get_value "userused@$QUSER1" $QFS)
-typeset group_used=$(get_value "groupused@$QGROUP" $QFS)
+typeset user_used=$(get_prop "userused@$QUSER1" $QFS)
+typeset group_used=$(get_prop "groupused@$QGROUP" $QFS)
 typeset file_size='100m'
 
 if [[ $user_used != 0 ]]; then
@@ -66,10 +57,10 @@ mkmount_writable $QFS
 log_must user_run $QUSER1 mkfile $file_size $QFILE
 sync_pool
 
-user_used=$(get_value "userused@$QUSER1" $QFS)
-group_used=$(get_value "groupused@$QGROUP" $QFS)
+user_used=$(get_prop "userused@$QUSER1" $QFS)
+group_used=$(get_prop "groupused@$QGROUP" $QFS)
 
-# get_value() reads the exact byte value which is slightly more than 100m
+# get_prop() reads the exact byte value which is slightly more than 100m
 if [[ "$(($user_used/1024/1024))m" != "$file_size" ]]; then
 	log_note "user $QUSER1 used is $user_used"
 	log_fail "userused for user $QUSER1 expected to be $file_size, " \

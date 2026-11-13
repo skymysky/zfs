@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -48,14 +39,14 @@ verify_runnable "global"
 function cleanup
 {
 	#
-	# Essentailly this is the default_cleanup routine but I cannot get it
-	# to work correctly.  So its reproduced below.  Still need to full
+	# Essentially this is the default_cleanup routine but I cannot get it
+	# to work correctly.  So its reproduced below.  Still need to fully
 	# understand why default_cleanup does not work correctly from here.
 	#
-        log_must zfs umount $TESTPOOL/$TESTFS
+    log_must zfs umount $TESTPOOL/$TESTFS
 
-        rm -rf $TESTDIR || \
-            log_unresolved Could not remove $TESTDIR
+    rm -rf $TESTDIR ||
+        log_unresolved Could not remove $TESTDIR
 
 	log_must zfs destroy $TESTPOOL/$TESTFS
 	destroy_pool $TESTPOOL
@@ -71,18 +62,11 @@ function mini_format
 
 	if is_linux; then
 		parted $disk -s -- mklabel gpt
-		typeset -i retval=$?
+	elif is_freebsd; then
+		gpart create -s gpt $disk
 	else
-		typeset format_file=/var/tmp/format_in.$$.1
-		echo "partition" > $format_file
-		echo "modify" >> $format_file
-
-		format -e -s -d $disk -f $format_file
-		typeset -i retval=$?
-
-		rm -rf $format_file
+		format -e -s -d $disk -f <(printf '%s\n' partition modify)
 	fi
-	return $retval
 }
 
 log_assert "format will disallow modification of a mounted zfs disk partition"\

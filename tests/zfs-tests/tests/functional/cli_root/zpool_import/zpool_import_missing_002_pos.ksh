@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -43,6 +34,8 @@
 #		  before data integrity is compromised
 #		- Raidz could withstand one devices failing
 #		  before data integrity is compromised
+#		- dRAID could withstand one devices failing
+#		  before data integrity is compromised
 #	Verify that is true.
 #
 # STRATEGY:
@@ -50,11 +43,12 @@
 #		- Regular pool
 #		- Mirror
 #		- Raidz
+#		- dRAID
 #	2. Create necessary filesystem and test files.
 #	3. Export the test pool.
 #	4. Move one or more device files to other directory
 #	5. Verify 'zpool import -d' with the new directory
-#	   will handle moved files successfullly.
+#	   will handle moved files successfully.
 #	   Using the various combinations.
 #		- Regular import
 #		- Alternate Root Specified
@@ -62,7 +56,16 @@
 
 verify_runnable "global"
 
-set -A vdevs "" "mirror" "raidz"
+# Randomly test a subset of combinations to speed up the test.
+(( rc=RANDOM % 3 ))
+if [[ $rc == 0 ]] ; then
+	set -A vdevs "" "mirror" "raidz"
+elif [[ $rc == 1 ]] ; then
+	set -A vdevs "" "mirror" "draid"
+else
+	set -A vdevs "" "raidz" "draid"
+fi
+
 set -A options "" "-R $ALTER_ROOT"
 
 function cleanup
@@ -88,7 +91,8 @@ function cleanup_all
 	while (( i < $MAX_NUM )); do
 		typeset dev_file=${DEVICE_DIR}/${DEVICE_FILE}$i
 		if [[ ! -e ${dev_file} ]]; then
-			log_must mkfile $FILE_SIZE ${dev_file}
+			log_must rm -f ${dev_file}
+			log_must truncate -s $FILE_SIZE ${dev_file}
 		fi
 		((i += 1))
 	done
@@ -158,7 +162,8 @@ while (( i < ${#vdevs[*]} )); do
 			# Backup all device files while filesystem prepared.
 			#
 			if [[ -z $backup ]] ; then
-				log_must tar cf $DEVICE_DIR/$DEVICE_ARCHIVE ${DEVICE_FILE}*
+				log_must tar cf $DEVICE_DIR/$DEVICE_ARCHIVE \
+				    ${DEVICE_FILE}0 ${DEVICE_FILE}1 ${DEVICE_FILE}2
 				backup="true"
 			fi
 
@@ -172,6 +177,9 @@ while (( i < ${#vdevs[*]} )); do
 					action=log_must
 					;;
 				'raidz')  (( count == 1 )) && \
+					action=log_must
+					;;
+				'draid')  (( count == 1 )) && \
 					action=log_must
 					;;
 			esac

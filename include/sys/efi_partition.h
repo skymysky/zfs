@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
@@ -24,7 +15,7 @@
  */
 
 #ifndef	_SYS_EFI_PARTITION_H
-#define	_SYS_EFI_PARTITION_H
+#define	_SYS_EFI_PARTITION_H extern __attribute__((visibility("default")))
 
 #include <sys/uuid.h>
 
@@ -73,18 +64,15 @@ typedef struct efi_gpe_Attrs {
 			RequiredPartition	:1;
 } efi_gpe_Attrs_t;
 
+/* MBR partition identification tags */
+#define	V_UNASSIGNED	0x00		/* unassigned partition */
+#define	V_USR		0x04		/* Usr filesystem */
+#define	V_RESERVED	0x0b		/* SMI reserved data */
+
 /*
  * 6a96237f-1dd2-11b2-99a6-080020736631	V_UNASSIGNED (not used as such)
- * 6a82cb45-1dd2-11b2-99a6-080020736631	V_BOOT
- * 6a85cf4d-1dd2-11b2-99a6-080020736631	V_ROOT
- * 6a87c46f-1dd2-11b2-99a6-080020736631	V_SWAP
  * 6a898cc3-1dd2-11b2-99a6-080020736631	V_USR
- * 6a8b642b-1dd2-11b2-99a6-080020736631	V_BACKUP
- * 6a8d2ac7-1dd2-11b2-99a6-080020736631	V_STAND (not used)
- * 6a8ef2e9-1dd2-11b2-99a6-080020736631	V_VAR
- * 6a90ba39-1dd2-11b2-99a6-080020736631	V_HOME
- * 6a9283a5-1dd2-11b2-99a6-080020736631	V_ALTSCTR
- * 6a945a3b-1dd2-11b2-99a6-080020736631	V_CACHE
+ * 6a945a3b-1dd2-11b2-99a6-080020736631	V_RESERVED
  */
 
 #define	EFI_UNUSED		{ 0x00000000, 0x0000, 0x0000, 0x00, 0x00, \
@@ -297,11 +285,11 @@ typedef struct efi_gpe {
  * checksums, and perform any necessary byte-swapping to the on-disk
  * format.
  */
-/* Solaris library abstraction for EFI partitons */
+/* Solaris library abstraction for EFI partitions */
 typedef struct dk_part	{
 	diskaddr_t	p_start;	/* starting LBA */
 	diskaddr_t	p_size;		/* size in blocks */
-	struct uuid	p_guid;		/* partion type GUID */
+	struct uuid	p_guid;		/* partition type GUID */
 	ushort_t	p_tag;		/* converted to part'n type GUID */
 	ushort_t	p_flag;		/* attributes */
 	char		p_name[EFI_PART_NAME_LEN]; /* partition name */
@@ -363,15 +351,19 @@ struct partition64 {
 #endif
 
 #ifndef _KERNEL
-extern	int	efi_alloc_and_init(int, uint32_t, struct dk_gpt **);
-extern	int	efi_alloc_and_read(int, struct dk_gpt **);
-extern	int	efi_write(int, struct dk_gpt *);
-extern	int	efi_rescan(int);
-extern	void	efi_free(struct dk_gpt *);
-extern	int	efi_type(int);
-extern	void	efi_err_check(struct dk_gpt *);
-extern	int	efi_auto_sense(int fd, struct dk_gpt **);
-extern	int	efi_use_whole_disk(int fd);
+#define	VT_ERROR	(-2)		/* errno supplies specific error */
+#define	VT_EIO		(-3)		/* I/O error accessing vtoc */
+#define	VT_EINVAL	(-4)		/* illegal value in vtoc or request */
+#define	VT_ENOSPC	(-6)		/* requested space not found */
+
+_SYS_EFI_PARTITION_H int efi_debug;
+_SYS_EFI_PARTITION_H int efi_alloc_and_init(int, uint32_t, struct dk_gpt **);
+_SYS_EFI_PARTITION_H int efi_alloc_and_read(int, struct dk_gpt **);
+_SYS_EFI_PARTITION_H int efi_write(int, struct dk_gpt *);
+_SYS_EFI_PARTITION_H int efi_rescan(int);
+_SYS_EFI_PARTITION_H void efi_free(struct dk_gpt *);
+_SYS_EFI_PARTITION_H void efi_err_check(struct dk_gpt *);
+_SYS_EFI_PARTITION_H int efi_use_whole_disk(int fd);
 #endif
 
 #ifdef __cplusplus

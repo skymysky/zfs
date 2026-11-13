@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://opensource.org/licenses/CDDL-1.0.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2013 Saso Kiselkov.  All rights reserved.
@@ -27,8 +18,8 @@
  */
 #include <sys/zfs_context.h>
 #include <sys/zio.h>
+#include <sys/zio_checksum.h>
 #include <sys/edonr.h>
-#include <sys/zfs_context.h>	/* For CTASSERT() */
 #include <sys/abd.h>
 
 #define	EDONR_MODE		512
@@ -45,7 +36,6 @@ edonr_incremental(void *buf, size_t size, void *arg)
 /*
  * Native zio_checksum interface for the Edon-R hash function.
  */
-/*ARGSUSED*/
 void
 abd_checksum_edonr_native(abd_t *abd, uint64_t size,
     const void *ctx_template, zio_cksum_t *zcp)
@@ -54,10 +44,10 @@ abd_checksum_edonr_native(abd_t *abd, uint64_t size,
 	EdonRState	ctx;
 
 	ASSERT(ctx_template != NULL);
-	bcopy(ctx_template, &ctx, sizeof (ctx));
+	memcpy(&ctx, ctx_template, sizeof (ctx));
 	(void) abd_iterate_func(abd, 0, size, edonr_incremental, &ctx);
 	EdonRFinal(&ctx, digest);
-	bcopy(digest, zcp->zc_word, sizeof (zcp->zc_word));
+	memcpy(zcp->zc_word, digest, sizeof (zcp->zc_word));
 }
 
 /*
@@ -89,18 +79,17 @@ abd_checksum_edonr_tmpl_init(const zio_cksum_salt_t *salt)
 	 * size by double-hashing it (the new salt block will be composed of
 	 * H(salt) || H(H(salt))).
 	 */
-	CTASSERT(EDONR_BLOCK_SIZE == 2 * (EDONR_MODE / 8));
-	EdonRHash(EDONR_MODE, salt->zcs_bytes, sizeof (salt->zcs_bytes) * 8,
-	    salt_block);
-	EdonRHash(EDONR_MODE, salt_block, EDONR_MODE, salt_block +
-	    EDONR_MODE / 8);
+	_Static_assert(EDONR_BLOCK_SIZE == 2 * (EDONR_MODE / 8),
+	    "Edon-R block size mismatch");
+	EdonRHash(salt->zcs_bytes, sizeof (salt->zcs_bytes) * 8, salt_block);
+	EdonRHash(salt_block, EDONR_MODE, salt_block + EDONR_MODE / 8);
 
 	/*
 	 * Feed the new salt block into the hash function - this will serve
 	 * as our MAC key.
 	 */
 	ctx = kmem_zalloc(sizeof (*ctx), KM_SLEEP);
-	EdonRInit(ctx, EDONR_MODE);
+	EdonRInit(ctx);
 	EdonRUpdate(ctx, salt_block, sizeof (salt_block) * 8);
 	return (ctx);
 }
@@ -108,8 +97,8 @@ abd_checksum_edonr_tmpl_init(const zio_cksum_salt_t *salt)
 void
 abd_checksum_edonr_tmpl_free(void *ctx_template)
 {
-	EdonRState	*ctx = ctx_template;
+	EdonRState *ctx = ctx_template;
 
-	bzero(ctx, sizeof (*ctx));
+	memset(ctx, 0, sizeof (*ctx));
 	kmem_free(ctx, sizeof (*ctx));
 }

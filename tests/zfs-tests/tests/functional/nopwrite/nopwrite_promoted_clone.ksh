@@ -1,4 +1,5 @@
 #!/bin/ksh
+# SPDX-License-Identifier: CDDL-1.0
 
 #
 # This file and its contents are supplied under the terms of the
@@ -8,7 +9,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -36,7 +37,7 @@ log_onexit cleanup
 
 function cleanup
 {
-	datasetexists $origin && log_must zfs destroy -R $TESTPOOL/clone
+	datasetexists $origin && destroy_dataset $TESTPOOL/clone -R
 	log_must zfs create -o mountpoint=$TESTDIR $origin
 }
 

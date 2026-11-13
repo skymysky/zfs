@@ -1,133 +1,132 @@
+dnl # SPDX-License-Identifier: CDDL-1.0
 dnl #
 dnl # 3.1 API change
 dnl # The super_block structure now stores a per-filesystem shrinker.
 dnl # This interface is preferable because it can be used to specifically
 dnl # target only the zfs filesystem for pruning.
 dnl #
-AC_DEFUN([ZFS_AC_KERNEL_SHRINK], [
-	AC_MSG_CHECKING([whether super_block has s_shrink])
-	ZFS_LINUX_TRY_COMPILE([
+AC_DEFUN([ZFS_AC_KERNEL_SRC_SUPER_BLOCK_S_SHRINK], [
+	ZFS_LINUX_TEST_SRC([super_block_s_shrink], [
 		#include <linux/fs.h>
-
-		int shrink(struct shrinker *s, struct shrink_control *sc)
-		    { return 0; }
 
 		static const struct super_block
 		    sb __attribute__ ((unused)) = {
-			.s_shrink.shrink = shrink,
 			.s_shrink.seeks = DEFAULT_SEEKS,
 			.s_shrink.batch = 0,
 		};
-	],[
-	],[
-		AC_MSG_RESULT(yes)
-		AC_DEFINE(HAVE_SHRINK, 1, [struct super_block has s_shrink])
-
-	],[
-		AC_MSG_RESULT(no)
-	])
+	],[])
 ])
 
 dnl #
-dnl # 3.3 API change
-dnl # The super_block structure was changed to use an hlist_node instead
-dnl # of a list_head for the .s_instance linkage.
+dnl # 6.7 API change
+dnl # s_shrink is now a pointer.
 dnl #
-dnl # This was done in part to resolve a race in the iterate_supers_type()
-dnl # function which was introduced in Linux 3.0 kernel.  The iterator
-dnl # was supposed to provide a safe way to call an arbitrary function on
-dnl # all super blocks of a specific type.  Unfortunately, because a
-dnl # list_head was used it was possible for iterate_supers_type() to
-dnl # get stuck spinning a super block which was just deactivated.
-dnl #
-dnl # This can occur because when the list head is removed from the
-dnl # fs_supers list it is reinitialized to point to itself.  If the
-dnl # iterate_supers_type() function happened to be processing the
-dnl # removed list_head it will get stuck spinning on that list_head.
-dnl #
-dnl # To resolve the issue for existing 3.0 - 3.2 kernels we detect when
-dnl # a list_head is used.  Then to prevent the spinning from occurring
-dnl # the .next pointer is set to the fs_supers list_head which ensures
-dnl # the iterate_supers_type() function will always terminate.
-dnl #
-AC_DEFUN([ZFS_AC_KERNEL_S_INSTANCES_LIST_HEAD], [
-	AC_MSG_CHECKING([whether super_block has s_instances list_head])
-	ZFS_LINUX_TRY_COMPILE([
+AC_DEFUN([ZFS_AC_KERNEL_SRC_SUPER_BLOCK_S_SHRINK_PTR], [
+	ZFS_LINUX_TEST_SRC([super_block_s_shrink_ptr], [
 		#include <linux/fs.h>
-	],[
-		struct super_block sb __attribute__ ((unused));
-
-		INIT_LIST_HEAD(&sb.s_instances);
-	],[
-		AC_MSG_RESULT(yes)
-		AC_DEFINE(HAVE_S_INSTANCES_LIST_HEAD, 1,
-		    [struct super_block has s_instances list_head])
-	],[
-		AC_MSG_RESULT(no)
-	])
-])
-
-AC_DEFUN([ZFS_AC_KERNEL_NR_CACHED_OBJECTS], [
-	AC_MSG_CHECKING([whether sops->nr_cached_objects() exists])
-	ZFS_LINUX_TRY_COMPILE([
-		#include <linux/fs.h>
-
-		int nr_cached_objects(struct super_block *sb) { return 0; }
-
-		static const struct super_operations
-		    sops __attribute__ ((unused)) = {
-			.nr_cached_objects = nr_cached_objects,
+		static unsigned long shrinker_cb(struct shrinker *shrink,
+		    struct shrink_control *sc) { return 0; }
+		static struct shrinker shrinker = {
+			.count_objects = shrinker_cb,
+			.scan_objects = shrinker_cb,
+			.seeks = DEFAULT_SEEKS,
 		};
-	],[
-	],[
-		AC_MSG_RESULT(yes)
-		AC_DEFINE(HAVE_NR_CACHED_OBJECTS, 1,
-			[sops->nr_cached_objects() exists])
-	],[
-		AC_MSG_RESULT(no)
-	])
-])
-
-AC_DEFUN([ZFS_AC_KERNEL_FREE_CACHED_OBJECTS], [
-	AC_MSG_CHECKING([whether sops->free_cached_objects() exists])
-	ZFS_LINUX_TRY_COMPILE([
-		#include <linux/fs.h>
-
-		void free_cached_objects(struct super_block *sb, int x)
-		    { return; }
-
-		static const struct super_operations
-		    sops __attribute__ ((unused)) = {
-			.free_cached_objects = free_cached_objects,
+		static const struct super_block
+		    sb __attribute__ ((unused)) = {
+			.s_shrink = &shrinker,
 		};
-	],[
-	],[
+	],[])
+])
+
+AC_DEFUN([ZFS_AC_KERNEL_SUPER_BLOCK_S_SHRINK], [
+	AC_MSG_CHECKING([whether super_block has s_shrink])
+	ZFS_LINUX_TEST_RESULT([super_block_s_shrink], [
 		AC_MSG_RESULT(yes)
-		AC_DEFINE(HAVE_FREE_CACHED_OBJECTS, 1,
-			[sops->free_cached_objects() exists])
+		AC_DEFINE(HAVE_SUPER_BLOCK_S_SHRINK, 1,
+			[have super_block s_shrink])
+	],[
+		AC_MSG_RESULT(no)
+		AC_MSG_CHECKING([whether super_block has s_shrink pointer])
+		ZFS_LINUX_TEST_RESULT([super_block_s_shrink_ptr], [
+			AC_MSG_RESULT(yes)
+			AC_DEFINE(HAVE_SUPER_BLOCK_S_SHRINK_PTR, 1,
+				[have super_block s_shrink pointer])
+		],[
+			AC_MSG_RESULT(no)
+			ZFS_LINUX_TEST_ERROR([sb->s_shrink()])
+		])
+	])
+])
+
+dnl #
+dnl # 6.0 API change
+dnl # register_shrinker() becomes a var-arg function that takes
+dnl # a printf-style format string as args > 0
+dnl #
+AC_DEFUN([ZFS_AC_KERNEL_SRC_REGISTER_SHRINKER_VARARG], [
+	ZFS_LINUX_TEST_SRC([register_shrinker_vararg], [
+		#include <linux/mm.h>
+		static unsigned long shrinker_cb(struct shrinker *shrink,
+		    struct shrink_control *sc) { return 0; }
+	],[
+		struct shrinker cache_shrinker = {
+			.count_objects = shrinker_cb,
+			.scan_objects = shrinker_cb,
+			.seeks = DEFAULT_SEEKS,
+		};
+		register_shrinker(&cache_shrinker, "vararg-reg-shrink-test");
+	])
+])
+
+AC_DEFUN([ZFS_AC_KERNEL_REGISTER_SHRINKER_VARARG],[
+	AC_MSG_CHECKING([whether new var-arg register_shrinker() exists])
+	ZFS_LINUX_TEST_RESULT([register_shrinker_vararg], [
+		AC_MSG_RESULT(yes)
+		AC_DEFINE(HAVE_REGISTER_SHRINKER_VARARG, 1,
+		    [register_shrinker is vararg])
 	],[
 		AC_MSG_RESULT(no)
 	])
 ])
 
 dnl #
-dnl # 3.12 API change
-dnl # The nid member was added to struct shrink_control to support
-dnl # NUMA-aware shrinkers.
+dnl # 6.7 API change
+dnl # register_shrinker has been replaced by shrinker_register.
 dnl #
-AC_DEFUN([ZFS_AC_KERNEL_SHRINK_CONTROL_HAS_NID], [
-	AC_MSG_CHECKING([whether shrink_control has nid])
-	ZFS_LINUX_TRY_COMPILE([
-		#include <linux/fs.h>
+AC_DEFUN([ZFS_AC_KERNEL_SRC_SHRINKER_REGISTER], [
+	ZFS_LINUX_TEST_SRC([shrinker_register], [
+		#include <linux/shrinker.h>
+		static unsigned long shrinker_cb(struct shrinker *shrink,
+		    struct shrink_control *sc) { return 0; }
 	],[
-		struct shrink_control sc __attribute__ ((unused));
-		unsigned long scnidsize __attribute__ ((unused)) =
-		    sizeof(sc.nid);
-	],[
+		struct shrinker cache_shrinker = {
+			.count_objects = shrinker_cb,
+			.scan_objects = shrinker_cb,
+			.seeks = DEFAULT_SEEKS,
+		};
+		shrinker_register(&cache_shrinker);
+	])
+])
+
+AC_DEFUN([ZFS_AC_KERNEL_SHRINKER_REGISTER], [
+	AC_MSG_CHECKING([whether shrinker_register() exists])
+	ZFS_LINUX_TEST_RESULT([shrinker_register], [
 		AC_MSG_RESULT(yes)
-		AC_DEFINE(SHRINK_CONTROL_HAS_NID, 1,
-		    [struct shrink_control has nid])
-	],[
+		AC_DEFINE(HAVE_SHRINKER_REGISTER, 1, [shrinker_register exists])
+	], [
 		AC_MSG_RESULT(no)
 	])
+])
+
+AC_DEFUN([ZFS_AC_KERNEL_SRC_SHRINKER], [
+	ZFS_AC_KERNEL_SRC_SUPER_BLOCK_S_SHRINK
+	ZFS_AC_KERNEL_SRC_SUPER_BLOCK_S_SHRINK_PTR
+	ZFS_AC_KERNEL_SRC_REGISTER_SHRINKER_VARARG
+	ZFS_AC_KERNEL_SRC_SHRINKER_REGISTER
+])
+
+AC_DEFUN([ZFS_AC_KERNEL_SHRINKER], [
+	ZFS_AC_KERNEL_SUPER_BLOCK_S_SHRINK
+	ZFS_AC_KERNEL_REGISTER_SHRINKER_VARARG
+	ZFS_AC_KERNEL_SHRINKER_REGISTER
 ])

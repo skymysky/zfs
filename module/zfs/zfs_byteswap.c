@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
@@ -30,12 +21,13 @@
 #include <sys/zfs_sa.h>
 #include <sys/zfs_acl.h>
 
+#ifndef _KERNEL
+static
+#endif
 void
 zfs_oldace_byteswap(ace_t *ace, int ace_cnt)
 {
-	int i;
-
-	for (i = 0; i != ace_cnt; i++, ace++) {
+	for (int i = 0; i != ace_cnt; i++, ace++) {
 		ace->a_who = BSWAP_32(ace->a_who);
 		ace->a_access_mask = BSWAP_32(ace->a_access_mask);
 		ace->a_flags = BSWAP_16(ace->a_flags);
@@ -44,8 +36,11 @@ zfs_oldace_byteswap(ace_t *ace, int ace_cnt)
 }
 
 /*
- * swap ace_t and ace_oject_t
+ * swap ace_t and ace_object_t
  */
+#ifndef _KERNEL
+static
+#endif
 void
 zfs_ace_byteswap(void *buf, size_t size, boolean_t zfs_layout)
 {
@@ -70,7 +65,7 @@ zfs_ace_byteswap(void *buf, size_t size, boolean_t zfs_layout)
 			 * larger than needed to hold the aces
 			 * present.  As long as we do not do any
 			 * swapping beyond the end of our block we are
-			 * okay.  It it safe to swap any non-ace data
+			 * okay.  It is safe to swap any non-ace data
 			 * within the block since it is just zeros.
 			 */
 			if (ptr + sizeof (zfs_ace_hdr_t) > end) {
@@ -132,23 +127,16 @@ zfs_ace_byteswap(void *buf, size_t size, boolean_t zfs_layout)
 	}
 }
 
-/* ARGSUSED */
 void
 zfs_oldacl_byteswap(void *buf, size_t size)
 {
-	int cnt;
-
 	/*
 	 * Arggh, since we don't know how many ACEs are in
 	 * the array, we have to swap the entire block
 	 */
-
-	cnt = size / sizeof (ace_t);
-
-	zfs_oldace_byteswap((ace_t *)buf, cnt);
+	zfs_oldace_byteswap((ace_t *)buf, size / sizeof (ace_t));
 }
 
-/* ARGSUSED */
 void
 zfs_acl_byteswap(void *buf, size_t size)
 {
@@ -198,8 +186,6 @@ zfs_znode_byteswap(void *buf, size_t size)
 	}
 }
 
-#if defined(_KERNEL) && defined(HAVE_SPL)
 EXPORT_SYMBOL(zfs_oldacl_byteswap);
 EXPORT_SYMBOL(zfs_acl_byteswap);
 EXPORT_SYMBOL(zfs_znode_byteswap);
-#endif

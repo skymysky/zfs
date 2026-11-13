@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -39,37 +30,40 @@
 # STRATEGY:
 #	1. Setup a mirror pool and filled with data.
 #	2. Detach one of devices
-#	3. Verify scrub failed until the resilver completed
-#
-# NOTES:
-#	Artificially limit the scrub speed by setting the zfs_scan_vdev_limit
-#	low in order to ensure that the scrub does not complete early.
+#	3. Create a file for the resilver to work on so it takes some time
+#	4. Export/import the pool to ensure the cache is dropped
+#	5. Verify scrub failed until the resilver completed
 #
 
 function cleanup
 {
-	log_must set_tunable64 zfs_scan_vdev_limit $ZFS_SCAN_VDEV_LIMIT_DEFAULT
+	log_must set_tunable32 SCAN_SUSPEND_PROGRESS 0
+	rm -f $mntpnt/extra
 }
 
 verify_runnable "global"
-
-# See issue: https://github.com/zfsonlinux/zfs/issues/5444
-if is_32bit; then
-	log_unsupported "Test case fails on 32-bit systems"
-fi
 
 log_onexit cleanup
 
 log_assert "Resilver prevent scrub from starting until the resilver completes"
 
-log_must set_tunable64 zfs_scan_vdev_limit $ZFS_SCAN_VDEV_LIMIT_SLOW
-log_must zpool detach $TESTPOOL $DISK2
-log_must zpool attach $TESTPOOL $DISK1 $DISK2
+mntpnt=$(get_prop mountpoint $TESTPOOL/$TESTFS)
+
+# Temporarily prevent scan progress so our test doesn't race
+log_must set_tunable32 SCAN_SUSPEND_PROGRESS 1
+
+while ! is_pool_resilvering $TESTPOOL; do
+	log_must zpool detach $TESTPOOL $DISK2
+	log_must file_write -b 1048576 -c 128 -o create -d 0 -f $mntpnt/extra
+	log_must zpool export $TESTPOOL
+	log_must zpool import $TESTPOOL
+	log_must zpool attach $TESTPOOL $DISK1 $DISK2
+done
+
 log_must is_pool_resilvering $TESTPOOL
 log_mustnot zpool scrub $TESTPOOL
 
-while ! is_pool_resilvered $TESTPOOL; do
-	sleep 1
-done
+log_must set_tunable32 SCAN_SUSPEND_PROGRESS 0
+log_must zpool wait -t resilver $TESTPOOL
 
 log_pass "Resilver prevent scrub from starting until the resilver completes"

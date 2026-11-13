@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -94,22 +85,22 @@ run_and_verify -p "$MPOOL"\
     -e "resource.fs.zfs.statechange" \
     -e "sysevent.fs.zfs.config_sync" \
     "zpool offline $MPOOL $VDEV1"
-run_and_verify -p "$MPOOL" -d 10 \
+run_and_verify -p "$MPOOL" \
     -e "resource.fs.zfs.statechange" \
     -e "sysevent.fs.zfs.vdev_online" \
-    -e "sysevent.fs.zfs.resilver_start" \
-    -e "sysevent.fs.zfs.resilver_finish" \
-    -e "sysevent.fs.zfs.history_event" \
     -e "sysevent.fs.zfs.config_sync" \
+    -e "sysevent.fs.zfs.resilver_start" \
+    -e "sysevent.fs.zfs.history_event" \
+    -e "sysevent.fs.zfs.resilver_finish" \
     "zpool online $MPOOL $VDEV1"
 
 # Attach then detach a device from the mirror.
-run_and_verify -p "$MPOOL" -d 10 \
+run_and_verify -p "$MPOOL" \
     -e "sysevent.fs.zfs.vdev_attach" \
     -e "sysevent.fs.zfs.resilver_start" \
-    -e "sysevent.fs.zfs.resilver_finish" \
-    -e "sysevent.fs.zfs.history_event" \
     -e "sysevent.fs.zfs.config_sync" \
+    -e "sysevent.fs.zfs.history_event" \
+    -e "sysevent.fs.zfs.resilver_finish" \
     "zpool attach $MPOOL $VDEV1 $VDEV4"
 run_and_verify -p "$MPOOL" \
     -e "sysevent.fs.zfs.vdev_remove" \
@@ -117,20 +108,20 @@ run_and_verify -p "$MPOOL" \
     "zpool detach $MPOOL $VDEV4"
 
 # Replace a device
-run_and_verify -p "$MPOOL" -d 10 \
+run_and_verify -p "$MPOOL" \
     -e "sysevent.fs.zfs.vdev_attach" \
     -e "sysevent.fs.zfs.resilver_start" \
+    -e "sysevent.fs.zfs.config_sync" \
+    -e "sysevent.fs.zfs.history_event" \
     -e "sysevent.fs.zfs.resilver_finish" \
     -e "sysevent.fs.zfs.vdev_remove" \
-    -e "sysevent.fs.zfs.history_event" \
-    -e "sysevent.fs.zfs.config_sync" \
     "zpool replace -f $MPOOL $VDEV1 $VDEV4"
 
 # Scrub a pool.
-run_and_verify -p "$MPOOL" -d 10 \
+run_and_verify -p "$MPOOL" \
     -e "sysevent.fs.zfs.scrub_start" \
-    -e "sysevent.fs.zfs.scrub_finish" \
     -e "sysevent.fs.zfs.history_event" \
+    -e "sysevent.fs.zfs.scrub_finish" \
     "zpool scrub $MPOOL"
 
 # Export then import a pool
@@ -139,9 +130,9 @@ run_and_verify -p "$MPOOL" \
     -e "sysevent.fs.zfs.config_sync" \
     "zpool export $MPOOL"
 run_and_verify -p "$MPOOL" \
-    -e "sysevent.fs.zfs.pool_import" \
-    -e "sysevent.fs.zfs.history_event" \
     -e "sysevent.fs.zfs.config_sync" \
+    -e "sysevent.fs.zfs.history_event" \
+    -e "sysevent.fs.zfs.pool_import" \
     "zpool import -d $TEST_BASE_DIR $MPOOL"
 
 # Destroy the pool

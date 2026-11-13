@@ -1,20 +1,17 @@
-include $(top_srcdir)/config/Rules.am
+# SPDX-License-Identifier: CDDL-1.0
+raidz_test_CFLAGS   = $(AM_CFLAGS)   $(KERNEL_CFLAGS)
+raidz_test_CPPFLAGS = $(AM_CPPFLAGS) $(LIBZPOOL_CPPFLAGS)
 
-AM_CFLAGS += $(DEBUG_STACKFLAGS) $(FRAME_LARGER_THAN)
-AM_CPPFLAGS += -DDEBUG
-
-DEFAULT_INCLUDES += \
-	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/lib/libspl/include
-
-bin_PROGRAMS = raidz_test
+bin_PROGRAMS    += raidz_test
+CPPCHECKTARGETS += raidz_test
 
 raidz_test_SOURCES = \
-	raidz_test.h \
-	raidz_test.c \
-	raidz_bench.c
+	%D%/raidz_bench.c \
+	%D%/raidz_test.c \
+	%D%/raidz_test.h
 
 raidz_test_LDADD = \
-	$(top_builddir)/lib/libzpool/libzpool.la
+	libzpool.la \
+	libzfs_core.la
 
-raidz_test_LDADD += -lm -ldl
+raidz_test_LDADD += -lm

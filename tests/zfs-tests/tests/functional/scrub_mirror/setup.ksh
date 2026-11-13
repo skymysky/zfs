@@ -1,23 +1,14 @@
 #! /bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -29,22 +20,13 @@
 # Copyright (c) 2013 by Delphix. All rights reserved.
 #
 
-. $STF_SUITE/include/libtest.shlib
 . $STF_SUITE/tests/functional/scrub_mirror/default.cfg
+. $STF_SUITE/include/libtest.shlib
 
 verify_runnable "global"
 
-if ! $(is_physical_device $DISKS) ; then
-	log_unsupported "This directory cannot be run on raw files."
-fi
-
-if [[ -n $SINGLE_DISK ]]; then
-	log_note "Partitioning a single disk ($SINGLE_DISK)"
-else
-	log_note "Partitioning disks ($MIRROR_PRIMARY $MIRROR_SECONDARY)"
-fi
-log_must set_partition $SIDE_PRIMARY_PART "" $MIRROR_SIZE $MIRROR_PRIMARY
-log_must set_partition $SIDE_SECONDARY_PART "" $MIRROR_SIZE $MIRROR_SECONDARY
+log_must mkdir -p $SIDE_DIR
+log_must truncate -s $MINVDEVSIZE $SIDE_PRIMARY $SIDE_SECONDARY
 
 default_mirror_setup $SIDE_PRIMARY $SIDE_SECONDARY
 

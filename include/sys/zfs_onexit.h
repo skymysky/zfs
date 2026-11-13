@@ -1,26 +1,18 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2020 by Delphix. All rights reserved.
  */
 
 #ifndef	_SYS_ZFS_ONEXIT_H
@@ -50,14 +42,10 @@ extern void zfs_onexit_destroy(zfs_onexit_t *zo);
 
 #endif
 
-extern int zfs_onexit_fd_hold(int fd, minor_t *minorp);
-extern void zfs_onexit_fd_rele(int fd);
+extern zfs_file_t *zfs_onexit_fd_hold(int fd, minor_t *minorp);
+extern void zfs_onexit_fd_rele(zfs_file_t *);
 extern int zfs_onexit_add_cb(minor_t minor, void (*func)(void *), void *data,
-    uint64_t *action_handle);
-extern int zfs_onexit_del_cb(minor_t minor, uint64_t action_handle,
-    boolean_t fire);
-extern int zfs_onexit_cb_data(minor_t minor, uint64_t action_handle,
-    void **data);
+    uintptr_t *action_handle);
 
 #ifdef	__cplusplus
 }

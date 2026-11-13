@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 
 /*
@@ -30,8 +21,6 @@
 #include <sys/vdev_raidz.h>
 #include <sys/vdev_raidz_impl.h>
 #include <stdio.h>
-
-#include <sys/time.h>
 
 #include "raidz_test.h"
 
@@ -65,7 +54,7 @@ bench_fini_raidz_maps(void)
 {
 	/* tear down golden zio */
 	raidz_free(zio_bench.io_abd, max_data_size);
-	bzero(&zio_bench, sizeof (zio_t));
+	memset(&zio_bench, 0, sizeof (zio_t));
 }
 
 static inline void
@@ -83,8 +72,17 @@ run_gen_bench_impl(const char *impl)
 			/* create suitable raidz_map */
 			ncols = rto_opts.rto_dcols + fn + 1;
 			zio_bench.io_size = 1ULL << ds;
-			rm_bench = vdev_raidz_map_alloc(&zio_bench,
-			    BENCH_ASHIFT, ncols, fn+1);
+
+			if (rto_opts.rto_expand) {
+				rm_bench = vdev_raidz_map_alloc_expanded(
+				    &zio_bench,
+				    rto_opts.rto_ashift, ncols+1, ncols,
+				    fn+1, rto_opts.rto_expand_offset,
+				    0, B_FALSE);
+			} else {
+				rm_bench = vdev_raidz_map_alloc(&zio_bench,
+				    BENCH_ASHIFT, ncols, fn+1);
+			}
 
 			/* estimate iteration count */
 			iter_cnt = GEN_BENCH_MEMORY;
@@ -113,7 +111,7 @@ run_gen_bench_impl(const char *impl)
 	}
 }
 
-void
+static void
 run_gen_bench(void)
 {
 	char **impl_name;
@@ -163,8 +161,16 @@ run_rec_bench_impl(const char *impl)
 			    (1ULL << BENCH_ASHIFT))
 				continue;
 
-			rm_bench = vdev_raidz_map_alloc(&zio_bench,
-			    BENCH_ASHIFT, ncols, PARITY_PQR);
+			if (rto_opts.rto_expand) {
+				rm_bench = vdev_raidz_map_alloc_expanded(
+				    &zio_bench,
+				    BENCH_ASHIFT, ncols+1, ncols,
+				    PARITY_PQR,
+				    rto_opts.rto_expand_offset, 0, B_FALSE);
+			} else {
+				rm_bench = vdev_raidz_map_alloc(&zio_bench,
+				    BENCH_ASHIFT, ncols, PARITY_PQR);
+			}
 
 			/* estimate iteration count */
 			iter_cnt = (REC_BENCH_MEMORY);
@@ -197,7 +203,7 @@ run_rec_bench_impl(const char *impl)
 	}
 }
 
-void
+static void
 run_rec_bench(void)
 {
 	char **impl_name;

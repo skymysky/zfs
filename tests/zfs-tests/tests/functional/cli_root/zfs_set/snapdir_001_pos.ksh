@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -48,8 +39,7 @@ verify_runnable "both"
 function cleanup
 {
 	for dataset in $all_datasets; do
-		snapexists ${dataset}@snap && \
-			log_must zfs destroy ${dataset}@snap
+		snapexists ${dataset}@snap && destroy_dataset ${dataset}@snap
 	done
 }
 
@@ -58,22 +48,12 @@ function verify_snapdir_visible # $1 dataset, $2 hidden|visible
 	typeset dataset=$1
 	typeset value=$2
 	typeset mtpt=$(get_prop mountpoint $dataset)
-	typeset name
 
-	for name in `ls -a $mtpt`; do
-		if [[ $name == ".zfs" ]]; then
-			if [[ $value == "visible" ]]; then
-				return 0
-			else
-				return 1
-			fi
-		fi
-	done
-
-	if [[ $value == "visible" ]]; then
-		return 1
+	# $mtpt/.zfs always actually exists so [ -d $mtpt/.zfs ] is always true
+	if ls -a $mtpt | grep -xFq .zfs; then
+		[ $value = "visible" ]
 	else
-		return 0
+		[ $value != "visible" ]
 	fi
 }
 
@@ -96,15 +76,14 @@ log_assert "Setting a valid snapdir property on a dataset succeeds."
 
 for dataset in $all_datasets; do
 	for value in hidden visible; do
-		if [[ $dataset == "$TESTPOOL/$TESTVOL" ]] ; then
+		if [ "$dataset" = "$TESTPOOL/$TESTVOL" ]; then
 			set_n_check_prop "$value" "snapdir" \
 				"$dataset" "false"
 		else
 			set_n_check_prop "$value" "snapdir" \
 				"$dataset"
-			verify_snapdir_visible $dataset $value
-			[[ $? -eq 0 ]] || \
-				log_fail "$dataset/.zfs is not $value as expect."
+			verify_snapdir_visible $dataset $value ||
+				log_fail "$dataset/.zfs is not $value as expected."
 		fi
 	done
 done

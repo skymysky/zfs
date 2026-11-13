@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -46,8 +37,8 @@ verify_runnable "global"
 
 function cleanup
 {
-	datasetexists $TESTPOOL1 && destroy_pool $TESTPOOL1
-	datasetexists $TESTPOOL && destroy_pool $TESTPOOL
+	poolexists $TESTPOOL1 && destroy_pool $TESTPOOL1
+	poolexists $TESTPOOL && destroy_pool $TESTPOOL
 }
 
 
@@ -59,7 +50,7 @@ mntpnt=$(get_prop mountpoint $TESTPOOL)
 
 typeset -i i=0
 while ((i < 10)); do
-	log_must truncate -s $MINVDEVSIZE $mntpnt/vdev$i
+	log_must truncate -s $MINVDEVSIZE2 $mntpnt/vdev$i
 
 	eval vdev$i=$mntpnt/vdev$i
 	((i += 1))
@@ -97,6 +88,28 @@ set -A valid_args \
 	"raidz2 $vdev0 $vdev1 $vdev2 spare $vdev3 raidz2 $vdev4 $vdev5 $vdev6" \
 	"raidz3 $vdev0 $vdev1 $vdev2 $vdev3 \
 		mirror $vdev4 $vdev5 $vdev6 $vdev7" \
+	"anymirror0 $vdev0" \
+	"anymirror0 $vdev0 $vdev1 anymirror0 $vdev2 $vdev3" \
+	"anymirror1 $vdev0 $vdev1 anymirror1 $vdev2 $vdev3" \
+	"anymirror2 $vdev0 $vdev1 $vdev2 anymirror2 $vdev3 $vdev4 $vdev5" \
+	"anymirror2 $vdev0 $vdev1 $vdev2 $vdev3 anymirror2 $vdev4 $vdev5 $vdev6" \
+	"anymirror3 $vdev0 $vdev1 $vdev2 $vdev3 anymirror3 $vdev4 $vdev5 $vdev6 $vdev7" \
+	"draid $vdev0 $vdev1 $vdev2 mirror $vdev3 $vdev4" \
+	"draid $vdev0 $vdev1 $vdev2 raidz1 $vdev3 $vdev4 $vdev5" \
+	"draid $vdev0 $vdev1 $vdev2 draid1 $vdev3 $vdev4 $vdev5" \
+	"draid $vdev0 $vdev1 $vdev2 special mirror $vdev3 $vdev4" \
+	"draid2 $vdev0 $vdev1 $vdev2 $vdev3 mirror $vdev4 $vdev5 $vdev6" \
+	"draid2 $vdev0 $vdev1 $vdev2 $vdev3 raidz2 $vdev4 $vdev5 $vdev6" \
+	"draid2 $vdev0 $vdev1 $vdev2 $vdev3 draid2 $vdev4 $vdev5 $vdev6 $vdev7"\
+	"draid2 $vdev0 $vdev1 $vdev2 $vdev3 \
+		special mirror $vdev4 $vdev5 $vdev6" \
+	"draid2 $vdev0 $vdev1 $vdev2 $vdev3 \
+		special mirror $vdev4 $vdev5 $vdev6 \
+		cache $vdev7 log mirror $vdev8 $vdev9" \
+	"draid $vdev0 $vdev1 $vdev2 draid $vdev4 $vdev5 $vdev6 $vdev7 \
+		special mirror $vdev8 $vdev9" \
+	"draid $vdev0 $vdev1 $vdev2 draid $vdev4 $vdev5 $vdev6 \
+		special mirror $vdev7 $vdev8 $vdev9" \
 	"spare $vdev0 $vdev1 $vdev2 mirror $vdev3 $vdev4 raidz $vdev5 $vdev6"
 
 set -A forced_args \
@@ -109,11 +122,20 @@ set -A forced_args \
 	"raidz $vdev0 $vdev1 raidz2 $vdev2 $vdev3 $vdev4" \
 	"raidz $vdev0 $vdev1 raidz2 $vdev2 $vdev3 $vdev4 spare $vdev5" \
 	"raidz $vdev0 $vdev1 spare $vdev2 raidz2 $vdev3 $vdev4 $vdev5" \
+	"raidz $vdev0 $vdev1 draid2 $vdev2 $vdev3 $vdev4 $vdev5" \
+	"raidz $vdev0 $vdev1 draid3 $vdev2 $vdev3 $vdev4 $vdev5 $vdev6" \
 	"mirror $vdev0 $vdev1 raidz $vdev2 $vdev3 raidz2 $vdev4 $vdev5 $vdev6" \
 	"mirror $vdev0 $vdev1 raidz $vdev2 $vdev3 \
 		raidz2 $vdev4 $vdev5 $vdev6 spare $vdev7" \
 	"mirror $vdev0 $vdev1 raidz $vdev2 $vdev3 \
 		spare $vdev4 raidz2 $vdev5 $vdev6 $vdev7" \
+	"mirror $vdev0 $vdev1 draid $vdev2 $vdev3 $vdev4 \
+		draid2 $vdev5 $vdev6 $vdev7 $vdev8 spare $vdev9" \
+	"anymirror0 $vdev0 anymirror $vdev1 $vdev2" \
+	"anymirror1 $vdev0 $vdev1 anymirror2 $vdev2 $vdev3 $vdev4" \
+	"anymirror3 $vdev0 $vdev1 $vdev2 $vdev3 anymirror0 $vdev4" \
+	"draid $vdev0 $vdev1 $vdev2 $vdev3 \
+		draid2 $vdev4 $vdev5 $vdev6 $vdev7 $vdev8" \
 	"spare $vdev0 $vdev1 $vdev2 mirror $vdev3 $vdev4 \
 		raidz2 $vdev5 $vdev6 $vdev7"
 

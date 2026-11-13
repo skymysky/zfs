@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -44,38 +35,34 @@
 
 verify_runnable "global"
 
-if [[ -n $DISK ]]; then
-	disk=$DISK
-else
-	disk=$DISK0
-fi
-
 set -A args  "" "-?" "-n" "-f" "-nf" "-fn" "-f -n" "--f" "-e" "-s" \
 	"-m" "-R" "-m -R" "-Rm" "-mR" "-m $TESTDIR $TESTPOOL" \
-	"-R $TESTDIR $TESTPOOL" "-m nodir $TESTPOOL $disk" \
-	"-R nodir $TESTPOOL $disk" "-m nodir -R nodir $TESTPOOL $disk" \
-	"-R nodir -m nodir $TESTPOOL $disk" "-R $TESTDIR -m nodir $TESTPOOL $disk" \
-	"-R nodir -m $TESTDIR $TESTPOOL $disk" \
+	"-R $TESTDIR $TESTPOOL" "-m nodir $TESTPOOL $DISK0" \
+	"-R nodir $TESTPOOL $DISK0" "-m nodir -R nodir $TESTPOOL $DISK0" \
+	"-R nodir -m nodir $TESTPOOL $DISK0" "-R $TESTDIR -m nodir $TESTPOOL $DISK0" \
+	"-R nodir -m $TESTDIR $TESTPOOL $DISK0" \
 	"-blah" "$TESTPOOL" "$TESTPOOL blah" "$TESTPOOL c?t0d0" \
 	"$TESTPOOL c0txd0" "$TESTPOOL c0t0dx" "$TESTPOOL cxtxdx" \
 	"$TESTPOOL mirror" "$TESTPOOL raidz" "$TESTPOOL mirror raidz" \
 	"$TESTPOOL raidz1" "$TESTPOOL mirror raidz1" \
-	"$TESTPOOL mirror c?t?d?" "$TESTPOOL mirror $disk c0t1d?" \
-	"$TESTPOOL RAIDZ ${disk}${SLICE_PREFIX}${SLICE0} \
-	${disk}${SLICE_PREFIX}${SLICE1}" \
-	"$TESTPOOL ${disk}${SLICE_PREFIX}${SLICE0} \
-	log ${disk}${SLICE_PREFIX}${SLICE1} \
-	log ${disk}${SLICE_PREFIX}${SLICE3}" \
-	"$TESTPOOL ${disk}${SLICE_PREFIX}${SLICE0} \
-	spare ${disk}${SLICE_PREFIX}${SLICE1} \
-	spare ${disk}${SLICE_PREFIX}${SLICE3}" \
-	"$TESTPOOL RAIDZ1 ${disk}${SLICE_PREFIX}${SLICE0} \
-	${disk}${SLICE_PREFIX}${SLICE1}" \
-	"$TESTPOOL MIRROR $disk" "$TESTPOOL raidz $disk" \
-	"$TESTPOOL raidz1 $disk" \
-	"1tank $disk" "1234 $disk" "?tank $disk" \
-	"tan%k $disk" "ta@# $disk" "tan+k $disk" \
-	"$BYND_MAX_NAME $disk"
+	"$TESTPOOL draid1" "$TESTPOOL mirror draid1" \
+	"$TESTPOOL anymirror" "$TESTPOOL mirror anymirror" \
+	"$TESTPOOL anymirror0" "$TESTPOOL mirror anymirror0" \
+	"$TESTPOOL anymirror1 $DISK0" \
+	"$TESTPOOL anymirror2 $DISK0 $DISK1" \
+	"$TESTPOOL anymirror3 $DISK0 $DISK1 $DISK2" \
+	"$TESTPOOL mirror c?t?d?" "$TESTPOOL mirror $DISK0 c0t1d?" \
+	"$TESTPOOL RAIDZ $DISK0 $DISK1" \
+	"$TESTPOOL $DISK0 log $DISK1 log $DISK2" \
+	"$TESTPOOL $DISK0 spare $DISK1 spare $DISK2" \
+	"$TESTPOOL RAIDZ1 $DISK0 $DISK1" "$TESTPOOL MIRROR $DISK0" \
+	"$TESTPOOL DRAID $DISK1 $DISK2 $DISK3" "$TESTPOOL raidz $DISK0" \
+	"$TESTPOOL raidz1 $DISK0" "$TESTPOOL draid $DISK0" \
+	"$TESTPOOL draid2 $DISK0 $DISK1" \
+	"$TESTPOOL draid $DISK0 $DISK1 $DISK2 spare s0-draid1-0" \
+	"1tank $DISK0" "1234 $DISK0" "?tank $DISK0" \
+	"tan%k $DISK0" "ta@# $DISK0" "tan+k $DISK0" \
+	"$BYND_MAX_NAME $DISK0"
 
 log_assert "'zpool create' should return an error with badly-formed parameters."
 log_onexit default_cleanup_noexit

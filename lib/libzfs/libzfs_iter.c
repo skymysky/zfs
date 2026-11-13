@@ -1,42 +1,36 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2013, 2015 by Delphix. All rights reserved.
+ * Copyright (c) 2013, 2019 by Delphix. All rights reserved.
  * Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright (c) 2019 Datto Inc.
  */
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
+#include <string.h>
 #include <unistd.h>
 #include <stddef.h>
-#include <libintl.h>
 #include <libzfs.h>
+#include <libzutil.h>
+#include <sys/mntent.h>
 
 #include "libzfs_impl.h"
 
-int
-zfs_iter_clones(zfs_handle_t *zhp, zfs_iter_f func, void *data)
+static int
+zfs_iter_clones(zfs_handle_t *zhp, int flags __maybe_unused, zfs_iter_f func,
+    void *data)
 {
 	nvlist_t *nvl = zfs_get_clones_nvl(zhp);
 	nvpair_t *pair;
@@ -66,16 +60,14 @@ zfs_do_list_ioctl(zfs_handle_t *zhp, int arg, zfs_cmd_t *zc)
 	orig_cookie = zc->zc_cookie;
 top:
 	(void) strlcpy(zc->zc_name, zhp->zfs_name, sizeof (zc->zc_name));
-	rc = ioctl(zhp->zfs_hdl->libzfs_fd, arg, zc);
+	zc->zc_objset_stats.dds_creation_txg = 0;
+	rc = zfs_ioctl(zhp->zfs_hdl, arg, zc);
 
 	if (rc == -1) {
 		switch (errno) {
 		case ENOMEM:
 			/* expand nvlist memory and try again */
-			if (zcmd_expand_dst_nvlist(zhp->zfs_hdl, zc) != 0) {
-				zcmd_free_nvlists(zc);
-				return (-1);
-			}
+			zcmd_expand_dst_nvlist(zhp->zfs_hdl, zc);
 			zc->zc_cookie = orig_cookie;
 			goto top;
 		/*
@@ -89,8 +81,7 @@ top:
 			break;
 		default:
 			rc = zfs_standard_error(zhp->zfs_hdl, errno,
-			    dgettext(TEXT_DOMAIN,
-			    "cannot iterate filesystems"));
+			    "cannot iterate filesystems");
 			break;
 		}
 	}
@@ -103,6 +94,13 @@ top:
 int
 zfs_iter_filesystems(zfs_handle_t *zhp, zfs_iter_f func, void *data)
 {
+	return (zfs_iter_filesystems_v2(zhp, 0, func, data));
+}
+
+int
+zfs_iter_filesystems_v2(zfs_handle_t *zhp, int flags, zfs_iter_f func,
+    void *data)
+{
 	zfs_cmd_t zc = {"\0"};
 	zfs_handle_t *nzhp;
 	int ret;
@@ -110,19 +108,23 @@ zfs_iter_filesystems(zfs_handle_t *zhp, zfs_iter_f func, void *data)
 	if (zhp->zfs_type != ZFS_TYPE_FILESYSTEM)
 		return (0);
 
-	if (zcmd_alloc_dst_nvlist(zhp->zfs_hdl, &zc, 0) != 0)
-		return (-1);
+	zcmd_alloc_dst_nvlist(zhp->zfs_hdl, &zc, 0);
+
+	if ((flags & ZFS_ITER_SIMPLE) == ZFS_ITER_SIMPLE)
+		zc.zc_simple = B_TRUE;
 
 	while ((ret = zfs_do_list_ioctl(zhp, ZFS_IOC_DATASET_LIST_NEXT,
 	    &zc)) == 0) {
+		if (zc.zc_simple)
+			nzhp = make_dataset_simple_handle_zc(zhp, &zc);
+		else
+			nzhp = make_dataset_handle_zc(zhp->zfs_hdl, &zc);
 		/*
 		 * Silently ignore errors, as the only plausible explanation is
 		 * that the pool has since been removed.
 		 */
-		if ((nzhp = make_dataset_handle_zc(zhp->zfs_hdl,
-		    &zc)) == NULL) {
+		if (nzhp == NULL)
 			continue;
-		}
 
 		if ((ret = func(nzhp, data)) != 0) {
 			zcmd_free_nvlists(&zc);
@@ -138,24 +140,46 @@ zfs_iter_filesystems(zfs_handle_t *zhp, zfs_iter_f func, void *data)
  */
 int
 zfs_iter_snapshots(zfs_handle_t *zhp, boolean_t simple, zfs_iter_f func,
-    void *data)
+    void *data, uint64_t min_txg, uint64_t max_txg)
+{
+	return (zfs_iter_snapshots_v2(zhp, simple ? ZFS_ITER_SIMPLE : 0, func,
+	    data, min_txg, max_txg));
+}
+
+int
+zfs_iter_snapshots_v2(zfs_handle_t *zhp, int flags, zfs_iter_f func,
+    void *data, uint64_t min_txg, uint64_t max_txg)
 {
 	zfs_cmd_t zc = {"\0"};
 	zfs_handle_t *nzhp;
 	int ret;
+	nvlist_t *range_nvl = NULL;
 
 	if (zhp->zfs_type == ZFS_TYPE_SNAPSHOT ||
 	    zhp->zfs_type == ZFS_TYPE_BOOKMARK)
 		return (0);
 
-	zc.zc_simple = simple;
+	zc.zc_simple = (flags & ZFS_ITER_SIMPLE) != 0;
 
-	if (zcmd_alloc_dst_nvlist(zhp->zfs_hdl, &zc, 0) != 0)
-		return (-1);
+	zcmd_alloc_dst_nvlist(zhp->zfs_hdl, &zc, 0);
+
+	if (min_txg != 0) {
+		range_nvl = fnvlist_alloc();
+		fnvlist_add_uint64(range_nvl, SNAP_ITER_MIN_TXG, min_txg);
+	}
+	if (max_txg != 0) {
+		if (range_nvl == NULL)
+			range_nvl = fnvlist_alloc();
+		fnvlist_add_uint64(range_nvl, SNAP_ITER_MAX_TXG, max_txg);
+	}
+
+	if (range_nvl != NULL)
+		zcmd_write_src_nvlist(zhp->zfs_hdl, &zc, range_nvl);
+
 	while ((ret = zfs_do_list_ioctl(zhp, ZFS_IOC_SNAPSHOT_LIST_NEXT,
 	    &zc)) == 0) {
 
-		if (simple)
+		if (zc.zc_simple)
 			nzhp = make_dataset_simple_handle_zc(zhp, &zc);
 		else
 			nzhp = make_dataset_handle_zc(zhp->zfs_hdl, &zc);
@@ -164,10 +188,12 @@ zfs_iter_snapshots(zfs_handle_t *zhp, boolean_t simple, zfs_iter_f func,
 
 		if ((ret = func(nzhp, data)) != 0) {
 			zcmd_free_nvlists(&zc);
+			fnvlist_free(range_nvl);
 			return (ret);
 		}
 	}
 	zcmd_free_nvlists(&zc);
+	fnvlist_free(range_nvl);
 	return ((ret < 0) ? ret : 0);
 }
 
@@ -176,6 +202,13 @@ zfs_iter_snapshots(zfs_handle_t *zhp, boolean_t simple, zfs_iter_f func,
  */
 int
 zfs_iter_bookmarks(zfs_handle_t *zhp, zfs_iter_f func, void *data)
+{
+	return (zfs_iter_bookmarks_v2(zhp, 0, func, data));
+}
+
+int
+zfs_iter_bookmarks_v2(zfs_handle_t *zhp, int flags __maybe_unused,
+    zfs_iter_f func, void *data)
 {
 	zfs_handle_t *nzhp;
 	nvlist_t *props = NULL;
@@ -188,9 +221,12 @@ zfs_iter_bookmarks(zfs_handle_t *zhp, zfs_iter_f func, void *data)
 
 	/* Setup the requested properties nvlist. */
 	props = fnvlist_alloc();
-	fnvlist_add_boolean(props, zfs_prop_to_name(ZFS_PROP_GUID));
-	fnvlist_add_boolean(props, zfs_prop_to_name(ZFS_PROP_CREATETXG));
-	fnvlist_add_boolean(props, zfs_prop_to_name(ZFS_PROP_CREATION));
+	for (zfs_prop_t p = 0; p < ZFS_NUM_PROPS; p++) {
+		if (zfs_prop_valid_for_type(p, ZFS_TYPE_BOOKMARK, B_FALSE)) {
+			fnvlist_add_boolean(props, zfs_prop_to_name(p));
+		}
+	}
+	fnvlist_add_boolean(props, "redact_complete");
 
 	if ((err = lzc_get_bookmarks(zhp->zfs_name, props, &bmarks)) != 0)
 		goto out;
@@ -198,7 +234,7 @@ zfs_iter_bookmarks(zfs_handle_t *zhp, zfs_iter_f func, void *data)
 	for (pair = nvlist_next_nvpair(bmarks, NULL);
 	    pair != NULL; pair = nvlist_next_nvpair(bmarks, pair)) {
 		char name[ZFS_MAX_DATASET_NAME_LEN];
-		char *bmark_name;
+		const char *bmark_name;
 		nvlist_t *bmark_props;
 
 		bmark_name = nvpair_name(pair);
@@ -275,11 +311,20 @@ zfs_snapshot_compare(const void *larg, const void *rarg)
 	lcreate = zfs_prop_get_int(l, ZFS_PROP_CREATETXG);
 	rcreate = zfs_prop_get_int(r, ZFS_PROP_CREATETXG);
 
-	return (AVL_CMP(lcreate, rcreate));
+	return (TREE_CMP(lcreate, rcreate));
 }
 
 int
-zfs_iter_snapshots_sorted(zfs_handle_t *zhp, zfs_iter_f callback, void *data)
+zfs_iter_snapshots_sorted(zfs_handle_t *zhp, zfs_iter_f callback,
+    void *data, uint64_t min_txg, uint64_t max_txg)
+{
+	return (zfs_iter_snapshots_sorted_v2(zhp, 0, callback, data,
+	    min_txg, max_txg));
+}
+
+int
+zfs_iter_snapshots_sorted_v2(zfs_handle_t *zhp, int flags, zfs_iter_f callback,
+    void *data, uint64_t min_txg, uint64_t max_txg)
 {
 	int ret = 0;
 	zfs_node_t *node;
@@ -289,7 +334,8 @@ zfs_iter_snapshots_sorted(zfs_handle_t *zhp, zfs_iter_f callback, void *data)
 	avl_create(&avl, zfs_snapshot_compare,
 	    sizeof (zfs_node_t), offsetof(zfs_node_t, zn_avlnode));
 
-	ret = zfs_iter_snapshots(zhp, B_FALSE, zfs_sort_snaps, &avl);
+	ret = zfs_iter_snapshots_v2(zhp, flags, zfs_sort_snaps, &avl, min_txg,
+	    max_txg);
 
 	for (node = avl_first(&avl); node != NULL; node = AVL_NEXT(&avl, node))
 		ret |= callback(node->zn_handle, data);
@@ -354,6 +400,13 @@ int
 zfs_iter_snapspec(zfs_handle_t *fs_zhp, const char *spec_orig,
     zfs_iter_f func, void *arg)
 {
+	return (zfs_iter_snapspec_v2(fs_zhp, 0, spec_orig, func, arg));
+}
+
+int
+zfs_iter_snapspec_v2(zfs_handle_t *fs_zhp, int flags, const char *spec_orig,
+    zfs_iter_f func, void *arg)
+{
 	char *buf, *comma_separated, *cp;
 	int err = 0;
 	int ret = 0;
@@ -391,8 +444,8 @@ zfs_iter_snapspec(zfs_handle_t *fs_zhp, const char *spec_orig,
 				}
 			}
 
-			err = zfs_iter_snapshots_sorted(fs_zhp,
-			    snapspec_cb, &ssa);
+			err = zfs_iter_snapshots_sorted_v2(fs_zhp, flags,
+			    snapspec_cb, &ssa, 0, 0);
 			if (ret == 0)
 				ret = err;
 			if (ret == 0 && (!ssa.ssa_seenfirst ||
@@ -422,16 +475,26 @@ zfs_iter_snapspec(zfs_handle_t *fs_zhp, const char *spec_orig,
 
 /*
  * Iterate over all children, snapshots and filesystems
+ * Process snapshots before filesystems because they are nearer the input
+ * handle: this is extremely important when used with zfs_iter_f functions
+ * looking for data, following the logic that we would like to find it as soon
+ * and as close as possible.
  */
 int
 zfs_iter_children(zfs_handle_t *zhp, zfs_iter_f func, void *data)
 {
+	return (zfs_iter_children_v2(zhp, 0, func, data));
+}
+
+int
+zfs_iter_children_v2(zfs_handle_t *zhp, int flags, zfs_iter_f func, void *data)
+{
 	int ret;
 
-	if ((ret = zfs_iter_snapshots(zhp, B_FALSE, func, data)) != 0)
+	if ((ret = zfs_iter_snapshots_v2(zhp, flags, func, data, 0, 0)) != 0)
 		return (ret);
 
-	return (zfs_iter_filesystems(zhp, func, data));
+	return (zfs_iter_filesystems_v2(zhp, flags, func, data));
 }
 
 
@@ -442,6 +505,7 @@ typedef struct iter_stack_frame {
 
 typedef struct iter_dependents_arg {
 	boolean_t first;
+	int flags;
 	boolean_t allowrecursion;
 	iter_stack_frame_t *stack;
 	zfs_iter_f func;
@@ -457,7 +521,7 @@ iter_dependents_cb(zfs_handle_t *zhp, void *arg)
 	ida->first = B_FALSE;
 
 	if (zhp->zfs_type == ZFS_TYPE_SNAPSHOT) {
-		err = zfs_iter_clones(zhp, iter_dependents_cb, ida);
+		err = zfs_iter_clones(zhp, ida->flags, iter_dependents_cb, ida);
 	} else if (zhp->zfs_type != ZFS_TYPE_BOOKMARK) {
 		iter_stack_frame_t isf;
 		iter_stack_frame_t *f;
@@ -474,14 +538,12 @@ iter_dependents_cb(zfs_handle_t *zhp, void *arg)
 					return (0);
 				} else {
 					zfs_error_aux(zhp->zfs_hdl,
-					    dgettext(TEXT_DOMAIN,
-					    "recursive dependency at '%s'"),
+					    "recursive dependency at '%s'",
 					    zfs_get_name(zhp));
 					err = zfs_error(zhp->zfs_hdl,
 					    EZFS_RECURSIVE,
-					    dgettext(TEXT_DOMAIN,
 					    "cannot determine dependent "
-					    "datasets"));
+					    "datasets");
 					zfs_close(zhp);
 					return (err);
 				}
@@ -491,10 +553,11 @@ iter_dependents_cb(zfs_handle_t *zhp, void *arg)
 		isf.zhp = zhp;
 		isf.next = ida->stack;
 		ida->stack = &isf;
-		err = zfs_iter_filesystems(zhp, iter_dependents_cb, ida);
+		err = zfs_iter_filesystems_v2(zhp, ida->flags,
+		    iter_dependents_cb, ida);
 		if (err == 0)
-			err = zfs_iter_snapshots(zhp, B_FALSE,
-			    iter_dependents_cb, ida);
+			err = zfs_iter_snapshots_sorted_v2(zhp, ida->flags,
+			    iter_dependents_cb, ida, 0, 0);
 		ida->stack = isf.next;
 	}
 
@@ -510,11 +573,69 @@ int
 zfs_iter_dependents(zfs_handle_t *zhp, boolean_t allowrecursion,
     zfs_iter_f func, void *data)
 {
+	return (zfs_iter_dependents_v2(zhp, 0, allowrecursion, func, data));
+}
+
+int
+zfs_iter_dependents_v2(zfs_handle_t *zhp, int flags, boolean_t allowrecursion,
+    zfs_iter_f func, void *data)
+{
 	iter_dependents_arg_t ida;
+	ida.flags = flags;
 	ida.allowrecursion = allowrecursion;
 	ida.stack = NULL;
 	ida.func = func;
 	ida.data = data;
 	ida.first = B_TRUE;
 	return (iter_dependents_cb(zfs_handle_dup(zhp), &ida));
+}
+
+/*
+ * Iterate over mounted children of the specified dataset
+ */
+int
+zfs_iter_mounted(zfs_handle_t *zhp, zfs_iter_f func, void *data)
+{
+	char mnt_prop[ZFS_MAXPROPLEN];
+	struct mnttab entry;
+	zfs_handle_t *mtab_zhp;
+	size_t namelen = strlen(zhp->zfs_name);
+	FILE *mnttab;
+	int err = 0;
+
+	if ((mnttab = fopen(MNTTAB, "re")) == NULL)
+		return (ENOENT);
+
+	while (err == 0 && getmntent(mnttab, &entry) == 0) {
+		/* Ignore non-ZFS entries */
+		if (strcmp(entry.mnt_fstype, MNTTYPE_ZFS) != 0)
+			continue;
+
+		/* Ignore datasets not within the provided dataset */
+		if (strncmp(entry.mnt_special, zhp->zfs_name, namelen) != 0 ||
+		    entry.mnt_special[namelen] != '/')
+			continue;
+
+		/* Skip snapshot of any child dataset */
+		if (strchr(entry.mnt_special, '@') != NULL)
+			continue;
+
+		if ((mtab_zhp = zfs_open(zhp->zfs_hdl, entry.mnt_special,
+		    ZFS_TYPE_FILESYSTEM)) == NULL)
+			continue;
+
+		/* Ignore legacy mounts as they are user managed */
+		verify(zfs_prop_get(mtab_zhp, ZFS_PROP_MOUNTPOINT, mnt_prop,
+		    sizeof (mnt_prop), NULL, NULL, 0, B_FALSE) == 0);
+		if (strcmp(mnt_prop, "legacy") == 0) {
+			zfs_close(mtab_zhp);
+			continue;
+		}
+
+		err = func(mtab_zhp, data);
+	}
+
+	fclose(mnttab);
+
+	return (err);
 }

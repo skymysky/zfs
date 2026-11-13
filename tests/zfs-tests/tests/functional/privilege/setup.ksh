@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -36,8 +27,7 @@ USES_NIS=false
 
 # if we're running NIS, turn it off until we clean up
 # (it can cause useradd to take a long time, hitting our TIMEOUT)
-svcs svc:/network/nis/client:default | grep online > /dev/null
-if [ $? -eq 0 ]
+if svcs svc:/network/nis/client:default | grep -q online
 then
   svcadm disable svc:/network/nis/client:default
   USES_NIS=true
@@ -61,7 +51,7 @@ done
 log_must mkdir -p /export/home/$ZFS_USER
 log_must useradd -c "ZFS Privileges Test User" -d /export/home/$ZFS_USER $ZFS_USER
 
-echo $ZFS_USER > /tmp/zfs-privs-test-user.txt
-echo $USES_NIS > /tmp/zfs-privs-test-nis.txt
+echo $ZFS_USER > $TEST_BASE_DIR/zfs-privs-test-user.txt
+echo $USES_NIS > $TEST_BASE_DIR/zfs-privs-test-nis.txt
 
 log_pass

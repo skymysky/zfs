@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -26,7 +17,7 @@
 #
 
 #
-# Copyright (c) 2013, 2016 by Delphix. All rights reserved.
+# Copyright (c) 2013, 2018 by Delphix. All rights reserved.
 #
 
 . $STF_SUITE/tests/functional/slog/slog.kshlib
@@ -44,18 +35,27 @@
 verify_runnable "global"
 
 log_assert "log device can survive when one of the pool device get corrupted."
+log_must setup
 
-for type in "mirror" "raidz" "raidz2"
-do
-	for spare in "" "spare"
-	do
+for type in "mirror" "raidz" "raidz2"; do
+	for spare in "" "spare"; do
 		log_must zpool create $TESTPOOL $type $VDEV $spare $SDEV \
 			log $LDEV
 
+                # Create a file to be corrupted
+                dd if=/dev/urandom of=/$TESTPOOL/filler bs=1024k count=50
+
+                #
+                # Ensure the file has been synced out before attempting to
+                # corrupt its contents.
+                #
+                sync_all_pools
+
+		#
 		# Corrupt a pool device to make the pool DEGRADED
-		dd if=/dev/urandom of=/$TESTPOOL/filler bs=1024k count=50
 		# The oseek value below is to skip past the vdev label.
-		if is_linux; then
+		#
+		if is_linux || is_freebsd; then
 			log_must dd if=/dev/urandom of=$VDIR/a bs=1024k \
 			   seek=4 conv=notrunc count=50
 		else
@@ -64,20 +64,10 @@ do
 		fi
 		log_must zpool scrub $TESTPOOL
 		log_must display_status $TESTPOOL
-		log_must zpool status $TESTPOOL 2>&1 >/dev/null
 		log_must zpool offline $TESTPOOL $VDIR/a
+		log_must wait_for_degraded $TESTPOOL
 
-		zpool status -v $TESTPOOL | \
-			grep "state: DEGRADED" 2>&1 >/dev/null
-		if (( $? != 0 )); then
-			log_fail "pool $TESTPOOL status should be DEGRADED"
-		fi
-
-		zpool status -v $TESTPOOL | grep logs | \
-			grep "DEGRADED" 2>&1 >/dev/null
-		if (( $? == 0 )); then
-			log_fail "log device should display correct status"
-		fi
+		log_mustnot eval "zpool status -v $TESTPOOL | grep logs | grep -q \"DEGRADED\""
 
 		log_must zpool online $TESTPOOL $VDIR/a
 		log_must zpool destroy -f $TESTPOOL

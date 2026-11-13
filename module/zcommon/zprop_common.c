@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
@@ -34,19 +25,18 @@
 #include <sys/spa.h>
 #include <sys/zfs_acl.h>
 #include <sys/zfs_ioctl.h>
+#include <sys/zfs_sysfs.h>
 #include <sys/zfs_znode.h>
 #include <sys/fs/zfs.h>
 
 #include "zfs_prop.h"
 #include "zfs_deleg.h"
 
-#if defined(_KERNEL)
-#include <sys/systm.h>
-#include <util/qsort.h>
-#else
+#if !defined(_KERNEL)
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/stat.h>
 #endif
 
 static zprop_desc_t *
@@ -54,6 +44,8 @@ zprop_get_proptable(zfs_type_t type)
 {
 	if (type == ZFS_TYPE_POOL)
 		return (zpool_prop_get_table());
+	else if (type == ZFS_TYPE_VDEV)
+		return (vdev_prop_get_table());
 	else
 		return (zfs_prop_get_table());
 }
@@ -63,15 +55,42 @@ zprop_get_numprops(zfs_type_t type)
 {
 	if (type == ZFS_TYPE_POOL)
 		return (ZPOOL_NUM_PROPS);
+	else if (type == ZFS_TYPE_VDEV)
+		return (VDEV_NUM_PROPS);
 	else
 		return (ZFS_NUM_PROPS);
+}
+
+static boolean_t
+zfs_mod_supported_prop(const char *name, zfs_type_t type,
+    const struct zfs_mod_supported_features *sfeatures)
+{
+/*
+ * The zfs module spa_feature_table[], whether in-kernel or in libzpool,
+ * always supports all the properties. libzfs needs to query the running
+ * module, via sysfs, to determine which properties are supported.
+ *
+ * The equivalent _can_ be done on FreeBSD by way of the sysctl
+ * tree, but this has not been done yet.
+ */
+#if defined(_KERNEL) || defined(LIB_ZPOOL_BUILD) || defined(__FreeBSD__)
+	(void) name, (void) type, (void) sfeatures;
+	return (B_TRUE);
+#else
+	return (zfs_mod_supported(type == ZFS_TYPE_POOL ?
+	    ZFS_SYSFS_POOL_PROPERTIES : (type == ZFS_TYPE_VDEV ?
+	    ZFS_SYSFS_VDEV_PROPERTIES : ZFS_SYSFS_DATASET_PROPERTIES),
+	    name, sfeatures));
+#endif
 }
 
 void
 zprop_register_impl(int prop, const char *name, zprop_type_t type,
     uint64_t numdefault, const char *strdefault, zprop_attr_t attr,
     int objset_types, const char *values, const char *colname,
-    boolean_t rightalign, boolean_t visible, const zprop_index_t *idx_tbl)
+    boolean_t rightalign, boolean_t visible, boolean_t flex,
+    const zprop_index_t *idx_tbl,
+    const struct zfs_mod_supported_features *sfeatures)
 {
 	zprop_desc_t *prop_tbl = zprop_get_proptable(objset_types);
 	zprop_desc_t *pd;
@@ -93,6 +112,9 @@ zprop_register_impl(int prop, const char *name, zprop_type_t type,
 	pd->pd_colname = colname;
 	pd->pd_rightalign = rightalign;
 	pd->pd_visible = visible;
+	pd->pd_zfs_mod_supported =
+	    zfs_mod_supported_prop(name, objset_types, sfeatures);
+	pd->pd_always_flex = flex;
 	pd->pd_table = idx_tbl;
 	pd->pd_table_size = 0;
 	while (idx_tbl && (idx_tbl++)->pi_name != NULL)
@@ -102,38 +124,44 @@ zprop_register_impl(int prop, const char *name, zprop_type_t type,
 void
 zprop_register_string(int prop, const char *name, const char *def,
     zprop_attr_t attr, int objset_types, const char *values,
-    const char *colname)
+    const char *colname, const struct zfs_mod_supported_features *sfeatures)
 {
 	zprop_register_impl(prop, name, PROP_TYPE_STRING, 0, def, attr,
-	    objset_types, values, colname, B_FALSE, B_TRUE, NULL);
+	    objset_types, values, colname, B_FALSE, B_TRUE, B_TRUE, NULL,
+	    sfeatures);
 
 }
 
 void
 zprop_register_number(int prop, const char *name, uint64_t def,
     zprop_attr_t attr, int objset_types, const char *values,
-    const char *colname)
+    const char *colname, boolean_t flex,
+    const struct zfs_mod_supported_features *sfeatures)
 {
 	zprop_register_impl(prop, name, PROP_TYPE_NUMBER, def, NULL, attr,
-	    objset_types, values, colname, B_TRUE, B_TRUE, NULL);
+	    objset_types, values, colname, B_TRUE, B_TRUE, flex, NULL,
+	    sfeatures);
 }
 
 void
 zprop_register_index(int prop, const char *name, uint64_t def,
     zprop_attr_t attr, int objset_types, const char *values,
-    const char *colname, const zprop_index_t *idx_tbl)
+    const char *colname, const zprop_index_t *idx_tbl,
+    const struct zfs_mod_supported_features *sfeatures)
 {
 	zprop_register_impl(prop, name, PROP_TYPE_INDEX, def, NULL, attr,
-	    objset_types, values, colname, B_TRUE, B_TRUE, idx_tbl);
+	    objset_types, values, colname, B_FALSE, B_TRUE, B_TRUE, idx_tbl,
+	    sfeatures);
 }
 
 void
 zprop_register_hidden(int prop, const char *name, zprop_type_t type,
-    zprop_attr_t attr, int objset_types, const char *colname)
+    zprop_attr_t attr, int objset_types, const char *colname, boolean_t flex,
+    const struct zfs_mod_supported_features *sfeatures)
 {
 	zprop_register_impl(prop, name, type, 0, NULL, attr,
 	    objset_types, NULL, colname,
-	    type == PROP_TYPE_NUMBER, B_FALSE, NULL);
+	    type == PROP_TYPE_NUMBER, B_FALSE, flex, NULL, sfeatures);
 }
 
 
@@ -192,6 +220,7 @@ zprop_iter_common(zprop_func func, void *cb, boolean_t show_all,
 	prop = ZPROP_CONT;
 	for (i = 0; i < num_props; i++) {
 		if ((order[i]->pd_visible || show_all) &&
+		    order[i]->pd_zfs_mod_supported &&
 		    (func(order[i]->pd_propnum, cb) != ZPROP_CONT)) {
 			prop = order[i]->pd_propnum;
 			break;
@@ -214,6 +243,8 @@ propname_match(const char *p, size_t len, zprop_desc_t *prop_entry)
 	const char *colname = prop_entry->pd_colname;
 	int c;
 #endif
+
+	ASSERT(propname != NULL);
 
 	if (len == strlen(propname) &&
 	    strncmp(p, propname, len) == 0)
@@ -371,6 +402,18 @@ zprop_valid_for_type(int prop, zfs_type_t type, boolean_t headcheck)
 	return ((prop_tbl[prop].pd_types & type) != 0);
 }
 
+/*
+ * For user property names, we allow all lowercase alphanumeric characters, plus
+ * a few useful punctuation characters.
+ */
+int
+zprop_valid_char(char c)
+{
+	return ((c >= 'a' && c <= 'z') ||
+	    (c >= '0' && c <= '9') ||
+	    c == '-' || c == '_' || c == '.' || c == ':');
+}
+
 #ifndef _KERNEL
 
 /*
@@ -391,7 +434,10 @@ zprop_width(int prop, boolean_t *fixed, zfs_type_t type)
 	prop_tbl = zprop_get_proptable(type);
 	pd = &prop_tbl[prop];
 
-	*fixed = B_TRUE;
+	if (type != ZFS_TYPE_POOL && type != ZFS_TYPE_VDEV)
+		type = ZFS_TYPE_FILESYSTEM;
+
+	*fixed = !pd->pd_always_flex;
 
 	/*
 	 * Start with the width of the column name.
@@ -411,12 +457,13 @@ zprop_width(int prop, boolean_t *fixed, zfs_type_t type)
 		if (ret < 5)
 			ret = 5;
 		/*
-		 * 'creation' is handled specially because it's a number
-		 * internally, but displayed as a date string.
+		 * 'health' is handled specially because it's a number
+		 * internally, but displayed as a fixed 8 character string.
 		 */
-		if (prop == ZFS_PROP_CREATION)
-			*fixed = B_FALSE;
+		if (type == ZFS_TYPE_POOL && prop == ZPOOL_PROP_HEALTH)
+			ret = 8;
 		break;
+
 	case PROP_TYPE_INDEX:
 		idx = prop_tbl[prop].pd_table;
 		for (i = 0; idx[i].pi_name != NULL; i++) {
@@ -426,7 +473,6 @@ zprop_width(int prop, boolean_t *fixed, zfs_type_t type)
 		break;
 
 	case PROP_TYPE_STRING:
-		*fixed = B_FALSE;
 		break;
 	}
 
@@ -435,7 +481,7 @@ zprop_width(int prop, boolean_t *fixed, zfs_type_t type)
 
 #endif
 
-#if defined(_KERNEL) && defined(HAVE_SPL)
+#if defined(_KERNEL)
 /* Common routines to initialize property tables */
 EXPORT_SYMBOL(zprop_register_impl);
 EXPORT_SYMBOL(zprop_register_string);
@@ -451,4 +497,5 @@ EXPORT_SYMBOL(zprop_index_to_string);
 EXPORT_SYMBOL(zprop_random_value);
 EXPORT_SYMBOL(zprop_values);
 EXPORT_SYMBOL(zprop_valid_for_type);
+EXPORT_SYMBOL(zprop_valid_char);
 #endif

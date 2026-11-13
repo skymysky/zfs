@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 
 /*
@@ -41,9 +32,9 @@
  * spa_version() number.
  *
  * Each new on-disk format change will be given a uniquely identifying string
- * guid rather than a version number. This avoids the problem of different
+ * GUID rather than a version number. This avoids the problem of different
  * organizations creating new on-disk formats with the same version number. To
- * keep feature guids unique they should consist of the reverse dns name of the
+ * keep feature GUIDs unique they should consist of the reverse dns name of the
  * organization which implemented the feature and a short name for the feature,
  * separated by a colon (e.g. com.delphix:async_destroy).
  *
@@ -95,11 +86,11 @@
  * These objects are linked to by the following names in the pool directory
  * object:
  *
- * 1) features_for_read: feature guid -> reference count
+ * 1) features_for_read: feature GUID -> reference count
  *    Features needed to open the pool for reading.
- * 2) features_for_write: feature guid -> reference count
+ * 2) features_for_write: feature GUID -> reference count
  *    Features needed to open the pool for writing.
- * 3) feature_descriptions: feature guid -> descriptive string
+ * 3) feature_descriptions: feature GUID -> descriptive string
  *    A human readable string.
  *
  * All enabled features appear in either features_for_read or
@@ -183,7 +174,7 @@ spa_features_check(spa_t *spa, boolean_t for_write,
 	char *buf;
 
 	zc = kmem_alloc(sizeof (zap_cursor_t), KM_SLEEP);
-	za = kmem_alloc(sizeof (zap_attribute_t), KM_SLEEP);
+	za = zap_attribute_alloc();
 	buf = kmem_alloc(MAXPATHLEN, KM_SLEEP);
 
 	supported = B_TRUE;
@@ -203,21 +194,21 @@ spa_features_check(spa_t *spa, boolean_t for_write,
 			supported = B_FALSE;
 
 			if (NULL != unsup_feat) {
-				char *desc = "";
+				const char *desc = "";
 
 				if (zap_lookup(os, spa->spa_feat_desc_obj,
 				    za->za_name, 1, MAXPATHLEN, buf) == 0)
 					desc = buf;
 
-				VERIFY(nvlist_add_string(unsup_feat,
-				    za->za_name, desc) == 0);
+				VERIFY0(nvlist_add_string(unsup_feat,
+				    za->za_name, desc));
 			}
 		}
 	}
 	zap_cursor_fini(zc);
 
 	kmem_free(buf, MAXPATHLEN);
-	kmem_free(za, sizeof (zap_attribute_t));
+	zap_attribute_free(za);
 	kmem_free(zc, sizeof (zap_cursor_t));
 
 	return (supported);
@@ -279,7 +270,7 @@ feature_get_refcount_from_disk(spa_t *spa, zfeature_info_t *feature,
 static int
 feature_get_enabled_txg(spa_t *spa, zfeature_info_t *feature, uint64_t *res)
 {
-	ASSERTV(uint64_t enabled_txg_obj = spa->spa_feat_enabled_txg_obj);
+	uint64_t enabled_txg_obj __maybe_unused = spa->spa_feat_enabled_txg_obj;
 
 	ASSERT(zfeature_depends_on(feature->fi_feature,
 	    SPA_FEATURE_ENABLED_TXG));
@@ -307,6 +298,7 @@ feature_sync(spa_t *spa, zfeature_info_t *feature, uint64_t refcount,
 	ASSERT(VALID_FEATURE_OR_NONE(feature->fi_feature));
 	uint64_t zapobj = (feature->fi_flags & ZFEATURE_FLAG_READONLY_COMPAT) ?
 	    spa->spa_feat_for_write_obj : spa->spa_feat_for_read_obj;
+	ASSERT(MUTEX_HELD(&spa->spa_feat_stats_lock));
 	VERIFY0(zap_update(spa->spa_meta_objset, zapobj, feature->fi_guid,
 	    sizeof (uint64_t), 1, &refcount, tx));
 
@@ -359,7 +351,9 @@ feature_enable_sync(spa_t *spa, zfeature_info_t *feature, dmu_tx_t *tx)
 	    feature->fi_guid, 1, strlen(feature->fi_desc) + 1,
 	    feature->fi_desc, tx));
 
+	mutex_enter(&spa->spa_feat_stats_lock);
 	feature_sync(spa, feature, initial_refcount, tx);
+	mutex_exit(&spa->spa_feat_stats_lock);
 
 	if (spa_feature_is_enabled(spa, SPA_FEATURE_ENABLED_TXG)) {
 		uint64_t enabling_txg = dmu_tx_get_txg(tx);
@@ -376,6 +370,26 @@ feature_enable_sync(spa_t *spa, zfeature_info_t *feature, dmu_tx_t *tx)
 		    spa->spa_feat_enabled_txg_obj, feature->fi_guid,
 		    sizeof (uint64_t), 1, &enabling_txg, tx));
 	}
+
+	/*
+	 * Errata #4 is mostly a problem with encrypted datasets, but it
+	 * is also a problem where the old encryption feature did not
+	 * depend on the bookmark_v2 feature. If the pool does not have
+	 * any encrypted datasets we can resolve this issue simply by
+	 * enabling this dependency.
+	 */
+	if (spa->spa_errata == ZPOOL_ERRATA_ZOL_8308_ENCRYPTION &&
+	    spa_feature_is_enabled(spa, SPA_FEATURE_ENCRYPTION) &&
+	    !spa_feature_is_active(spa, SPA_FEATURE_ENCRYPTION) &&
+	    feature->fi_feature == SPA_FEATURE_BOOKMARK_V2)
+		spa->spa_errata = 0;
+
+	/*
+	 * Convert the old on-disk error log to the new format when activating
+	 * the head_errlog feature.
+	 */
+	if (feature->fi_feature == SPA_FEATURE_HEAD_ERRLOG)
+		spa_upgrade_errlog(spa, tx);
 }
 
 static void
@@ -384,9 +398,9 @@ feature_do_action(spa_t *spa, spa_feature_t fid, feature_action_t action,
 {
 	uint64_t refcount = 0;
 	zfeature_info_t *feature = &spa_feature_table[fid];
-	ASSERTV(uint64_t zapobj =
+	uint64_t zapobj __maybe_unused =
 	    (feature->fi_flags & ZFEATURE_FLAG_READONLY_COMPAT) ?
-	    spa->spa_feat_for_write_obj : spa->spa_feat_for_read_obj);
+	    spa->spa_feat_for_write_obj : spa->spa_feat_for_read_obj;
 
 	ASSERT(VALID_FEATURE_FID(fid));
 	ASSERT(0 != zapobj);
@@ -395,6 +409,7 @@ feature_do_action(spa_t *spa, spa_feature_t fid, feature_action_t action,
 	ASSERT(dmu_tx_is_syncing(tx));
 	ASSERT3U(spa_version(spa), >=, SPA_VERSION_FEATURES);
 
+	mutex_enter(&spa->spa_feat_stats_lock);
 	VERIFY3U(feature_get_refcount(spa, feature, &refcount), !=, ENOTSUP);
 
 	switch (action) {
@@ -412,6 +427,7 @@ feature_do_action(spa_t *spa, spa_feature_t fid, feature_action_t action,
 	}
 
 	feature_sync(spa, feature, refcount, tx);
+	mutex_exit(&spa->spa_feat_stats_lock);
 }
 
 void
@@ -458,6 +474,15 @@ spa_feature_decr(spa_t *spa, spa_feature_t fid, dmu_tx_t *tx)
 	feature_do_action(spa, fid, FEATURE_ACTION_DECR, tx);
 }
 
+/*
+ * spa_feature_is_enabled() and spa_feature_is_active() answer from the
+ * in-core refcount cache, which spa_ld_check_features() fills in while a
+ * pool is being imported.  Until then every feature reads as disabled, so
+ * code that can run earlier in the import, such as reads of the MOS, can't
+ * rely on them.  An active ZFEATURE_FLAG_MOS feature is also listed in the
+ * label's features_for_read, which is available from the start of the
+ * import; spa_dynamic_gang_header() checks spa_label_features for that.
+ */
 boolean_t
 spa_feature_is_enabled(spa_t *spa, spa_feature_t fid)
 {

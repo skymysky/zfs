@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -71,18 +62,24 @@ for ds in $datasets; do
 	log_must zfs set quota=25M $ds
 	log_must zfs set refreservation=15M $ds
 
-	typeset -i avail
+	typeset -i avail used exceed
 	avail=$(get_prop avail $subfs)
+	used=$(get_prop usedbydataset $subfs)
 	log_must zfs set refreservation=$avail $subfs
-	typeset mntpnt
-	mntpnt=$(get_prop mountpoint $subfs)
-	log_must mkfile $avail $mntpnt/$TESTFILE
 
-	typeset -i exceed
-	((exceed = avail + 1))
+	#
+	# A refreservation can grow to avail + used.  The kernel checks the
+	# on-disk space, which can differ from avail, so leave a margin.
+	#
+	((exceed = avail + used + 1024 * 1024))
 	log_mustnot zfs set refreservation=$exceed $subfs
-	log_mustnot mkfile $avail $mntpnt/$TESTFILE
 
+	#
+	# Don't write to $subfs here.  $ds is at its quota, and a write's
+	# worst-case space estimate is charged to $ds once it exceeds the
+	# unused refreservation, so the write can fail with EDQUOT.
+	#
+	log_must zfs set refreservation=none $subfs
 	log_must zfs set quota=none $ds
 	log_must zfs set reservation=15M $ds
 done

@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
@@ -24,6 +15,7 @@
  */
 /*
  * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2025, Klara, Inc.
  */
 
 #ifndef _SYS_TXG_H
@@ -41,6 +33,7 @@ extern "C" {
 #define	TXG_MASK		(TXG_SIZE - 1)	/* mask for size	*/
 #define	TXG_INITIAL		TXG_SIZE	/* initial txg 		*/
 #define	TXG_IDX			(txg & TXG_MASK)
+#define	TXG_UNKNOWN		0
 
 /* Number of txgs worth of frees we defer adding to in-core spacemaps */
 #define	TXG_DEFER_SIZE		2
@@ -64,6 +57,23 @@ typedef struct txg_list {
 	txg_node_t	*tl_head[TXG_SIZE];
 } txg_list_t;
 
+/*
+ * Wait flags for txg_wait_synced_flags(). By default (TXG_WAIT_NONE), it will
+ * wait until the wanted txg is reached, or block forever. Additional flags
+ * indicate other conditions that the caller is interested in, that will cause
+ * the wait to break and return an error code describing the condition.
+ */
+typedef enum {
+	/* No special flags. Guaranteed to block forever or return 0 */
+	TXG_WAIT_NONE   = 0,
+
+	/* If a signal arrives while waiting, abort and return EINTR */
+	TXG_WAIT_SIGNAL = (1 << 0),
+
+	/* If the pool suspends while waiting, abort and return ESHUTDOWN. */
+	TXG_WAIT_SUSPEND = (1 << 1),
+} txg_wait_flag_t;
+
 struct dsl_pool;
 
 extern void txg_init(struct dsl_pool *dp, uint64_t txg);
@@ -77,23 +87,37 @@ extern void txg_register_callbacks(txg_handle_t *txghp, list_t *tx_callbacks);
 
 extern void txg_delay(struct dsl_pool *dp, uint64_t txg, hrtime_t delta,
     hrtime_t resolution);
-extern void txg_kick(struct dsl_pool *dp);
+extern void txg_kick(struct dsl_pool *dp, uint64_t txg);
 
 /*
  * Wait until the given transaction group has finished syncing.
  * Try to make this happen as soon as possible (eg. kick off any
  * necessary syncs immediately).  If txg==0, wait for the currently open
  * txg to finish syncing.
+ * See txg_wait_flag_t above for a description of how the flags affect the wait.
+ */
+extern int txg_wait_synced_flags(struct dsl_pool *dp, uint64_t txg,
+    txg_wait_flag_t flags);
+
+/*
+ * Traditional form of txg_wait_synced_flags, waits forever.
+ * Shorthand for VERIFY0(txg_wait_synced_flags(dp, TXG_WAIT_NONE))
  */
 extern void txg_wait_synced(struct dsl_pool *dp, uint64_t txg);
 
 /*
+ * Wake all threads waiting in txg_wait_synced_flags() so they can reevaluate.
+ */
+extern void txg_wait_kick(struct dsl_pool *dp);
+
+/*
  * Wait until the given transaction group, or one after it, is
  * the open transaction group.  Try to make this happen as soon
- * as possible (eg. kick off any necessary syncs immediately).
- * If txg == 0, wait for the next open txg.
+ * as possible (eg. kick off any necessary syncs immediately) when
+ * should_quiesce is set.  If txg == 0, wait for the next open txg.
  */
-extern void txg_wait_open(struct dsl_pool *dp, uint64_t txg);
+extern void txg_wait_open(struct dsl_pool *dp, uint64_t txg,
+    boolean_t should_quiesce);
 
 /*
  * Returns TRUE if we are "backed up" waiting for the syncing
@@ -131,7 +155,14 @@ extern void *txg_list_head(txg_list_t *tl, uint64_t txg);
 extern void *txg_list_next(txg_list_t *tl, void *p, uint64_t txg);
 
 /* Global tuning */
-extern int zfs_txg_timeout;
+extern uint_t zfs_txg_timeout;
+
+
+#ifdef ZFS_DEBUG
+#define	TXG_VERIFY(spa, txg)		txg_verify(spa, txg)
+#else
+#define	TXG_VERIFY(spa, txg)
+#endif
 
 #ifdef	__cplusplus
 }

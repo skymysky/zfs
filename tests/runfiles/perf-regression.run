@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -6,11 +7,11 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
-# Copyright (c) 2015 by Delphix. All rights reserved.
+# Copyright (c) 2015, 2016 by Delphix. All rights reserved.
 #
 
 [DEFAULT]
@@ -21,12 +22,12 @@ user = root
 timeout = 0
 post_user = root
 post = cleanup
-outputdir = /var/tmp/test_results
 tags = ['perf']
 
 [tests/perf/regression]
-tests = ['sequential_writes', 'sequential_reads', 'sequential_reads_cached',
-    'sequential_reads_cached_clone', 'random_reads', 'random_writes',
-    'random_readwrite']
+tests = ['sequential_writes', 'sequential_reads', 'sequential_reads_arc_cached',
+    'sequential_reads_arc_cached_clone', 'sequential_reads_dbuf_cached',
+    'random_reads', 'random_writes', 'random_readwrite', 'random_writes_zil',
+    'random_readwrite_fixed']
 post =
 tags = ['perf', 'regression']

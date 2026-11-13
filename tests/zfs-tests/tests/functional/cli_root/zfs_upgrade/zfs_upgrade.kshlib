@@ -1,22 +1,13 @@
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -42,11 +33,22 @@ set -A spa_create_versions 9 15 24
 set -A zpl_upgrade_versions 3 4  5
 set -A spa_upgrade_versions 9 15 24
 
+function get_pool_version #pool
+{
+	ver=$(get_pool_prop version $1)
+
+	if [ "$ver" = "-" ]; then
+		ver="5000"
+	fi
+
+	echo "$ver"
+}
+
 function default_setup_datasets #rootfs
 {
 	typeset rootfs=$1
 	typeset pool=${rootfs%%/*}
-	typeset -i vp=$(get_pool_prop version $pool)
+	typeset -i vp=$(get_pool_version $pool)
 	typeset -i version
 	typeset -i m
 	typeset -i spa_version
@@ -107,7 +109,7 @@ function default_cleanup_datasets #rootfs
 	typeset rootfs=$1
 
 	if datasetexists $rootfs ; then
-		log_must zfs destroy -Rf $rootfs
+		log_must_busy zfs destroy -Rf $rootfs
 	fi
 
 	if datasetnonexists $rootfs ; then
@@ -119,7 +121,7 @@ function default_check_zfs_upgrade #rootfs
 {
 	typeset rootfs=$1
 	typeset pool=${rootfs%%/*}
-	typeset -i vp=$(get_pool_prop version $pool)
+	typeset -i vp=$(get_pool_version $pool)
 	typeset -i m
 	typeset -i spa_version
 	typeset -i zpl_version
@@ -150,9 +152,9 @@ function default_check_zfs_upgrade #rootfs
 
 		if (( df_ret != 0 )); then
 			if (( spa_version != 0 )) && (( vp < spa_version )); then
-				log_mustnot zfs upgrade $opt -a >/dev/null
-				log_must zpool upgrade $pool >/dev/null
-				vp=$(get_pool_prop version $pool)
+				log_mustnot eval "zfs upgrade $opt -a >/dev/null"
+				log_must eval "zpool upgrade $pool >/dev/null"
+				vp=$(get_pool_version $pool)
 			fi
 
 			log_must zfs upgrade $opt -a

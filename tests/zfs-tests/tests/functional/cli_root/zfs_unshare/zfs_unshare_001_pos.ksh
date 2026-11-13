@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -62,17 +53,14 @@ function cleanup
 	[[ -d $TESTDIR2 ]] && \
 		log_must rm -rf $TESTDIR2
 
-	if datasetexists "$TESTPOOL/$TESTCLONE"; then
-		log_must zfs destroy -f $TESTPOOL/$TESTCLONE
-	fi
+	datasetexists "$TESTPOOL/$TESTCLONE" && \
+		destroy_dataset $TESTPOOL/$TESTCLONE -f
 
-	if snapexists "$TESTPOOL/$TESTFS2@snapshot"; then
-		log_must zfs destroy -f $TESTPOOL/$TESTFS2@snapshot
-	fi
+	snapexists "$TESTPOOL/$TESTFS2@snapshot" && \
+		destroy_dataset $TESTPOOL/$TESTFS2@snapshot -f
 
-	if datasetexists "$TESTPOOL/$TESTFS2"; then
-		log_must zfs destroy -f $TESTPOOL/$TESTFS2
-	fi
+	datasetexists "$TESTPOOL/$TESTFS2" && \
+		destroy_dataset $TESTPOOL/$TESTFS2 -f
 }
 
 #
@@ -140,7 +128,7 @@ while (( i < ${#mntp_fs[*]} )); do
 	((i = i + 2))
 done
 
-log_note "Verify 'zfs unshare -a' succeds as root."
+log_note "Verify 'zfs unshare -a' succeeds as root."
 
 i=0
 typeset sharenfs_val
@@ -152,7 +140,7 @@ while (( i < ${#mntp_fs[*]} )); do
 	else
 		log_must zfs set sharenfs=on ${mntp_fs[((i+1))]}
 		is_shared ${mntp_fs[i]} || \
-			log_fail "'zfs set sharenfs=on' fails to share filesystem."
+			log_fail "'zfs set sharenfs=on' fails to share filesystem: ${mntp_fs[i]} not shared."
 	fi
 
         ((i = i + 2))
@@ -169,7 +157,7 @@ log_must zfs unshare -a
 i=0
 while (( i < ${#mntp_fs[*]} )); do
         not_shared ${mntp_fs[i]} || \
-                log_fail "'zfs unshare -a' fails to unshare all shared zfs filesystems."
+                log_fail "'zfs unshare -a' fails to unshare all shared zfs filesystems: ${mntp_fs[i]} still shared."
 
         ((i = i + 2))
 done

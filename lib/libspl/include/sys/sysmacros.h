@@ -1,33 +1,26 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License, Version 1.0 only
- * (the "License").  You may not use this file except in compliance
- * with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright 2011 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright (c) 2012, 2018 by Delphix. All rights reserved.
+ * Copyright (c) 2012, Joyent, Inc. All rights reserved.
  */
 
 #ifndef _LIBSPL_SYS_SYSMACROS_H
 #define	_LIBSPL_SYS_SYSMACROS_H
 
-#include_next <sys/sysmacros.h>
+#include <stdint.h>
+#include <limits.h>
 
 /* common macros */
 #ifndef MIN
@@ -45,14 +38,17 @@
 #ifndef	DIV_ROUND_UP
 #define	DIV_ROUND_UP(n, d)	(((n) + (d) - 1) / (d))
 #endif
+#ifndef rounddown
+#define	rounddown(x, y)		(((x) / (y)) * (y))
+#endif
 
-#define	makedevice(maj, min)	makedev(maj, min)
 #define	_sysconf(a)		sysconf(a)
 
 /*
  * Compatibility macros/typedefs needed for Solaris -> Linux port
  */
-#define	P2ALIGN(x, align)	((x) & -(align))
+// Deprecated. Use P2ALIGN_TYPED instead.
+// #define	P2ALIGN(x, align)	((x) & -(align))
 #define	P2CROSS(x, y, align)	(((x) ^ (y)) > (align) - 1)
 #define	P2ROUNDUP(x, align)	((((x) - 1) | ((align) - 1)) + 1)
 #define	P2BOUNDARY(off, len, align) \
@@ -92,10 +88,46 @@
 #define	P2SAMEHIGHBIT_TYPED(x, y, type)		\
 	(((type)(x) ^ (type)(y)) < ((type)(x) & (type)(y)))
 
+#define	max_ncpus	64
+#define	boot_ncpus	(sysconf(_SC_NPROCESSORS_ONLN))
 
-/* avoid any possibility of clashing with <stddef.h> version */
-#if defined(_KERNEL) && !defined(_KMEMUSER) && !defined(offsetof)
-#define	offsetof(s, m)	((size_t)(&(((s *)0)->m)))
-#endif
+/*
+ * Process priorities as defined by setpriority(2) and getpriority(2).
+ */
+#define	minclsyspri	19
+#define	defclsyspri	0
+/* Write issue taskq priority. */
+#define	wtqclsyspri	-19
+#define	maxclsyspri	-20
 
-#endif /* _LIBSPL_SYS_SYSMACROS_H */
+#define	CPU_SEQID	((uintptr_t)pthread_self() & (max_ncpus - 1))
+#define	CPU_SEQID_UNSTABLE	CPU_SEQID
+
+/*
+ * Find highest one bit set.
+ * Returns bit number + 1 of highest bit that is set, otherwise returns 0.
+ */
+static inline int
+highbit64(uint64_t i)
+{
+	if (i == 0)
+		return (0);
+
+	return (CHAR_BIT * sizeof (uint64_t) - __builtin_clzll(i));
+}
+
+/*
+ * Find lowest one bit set.
+ * Returns bit number + 1 of lowest bit that is set, otherwise returns 0.
+ * The __builtin_ffsll() function is supported by both GCC and Clang.
+ */
+static inline int
+lowbit64(uint64_t i)
+{
+	if (i == 0)
+		return (0);
+
+	return (__builtin_ffsll(i));
+}
+
+#endif /* _SYS_SYSMACROS_H */

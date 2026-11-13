@@ -1,31 +1,23 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2014, 2016 by Delphix. All rights reserved.
- * Copyright Saso Kiselkov 2013, All rights reserved.
+ * Copyright (c) 2013 Saso Kiselkov, All rights reserved.
+ * Copyright (c) 2021 Tino Reichardt <milky-zfs@mcmilk.de>
  */
 
 #ifndef _SYS_ZIO_CHECKSUM_H
-#define	_SYS_ZIO_CHECKSUM_H
+#define	_SYS_ZIO_CHECKSUM_H extern __attribute__((visibility("default")))
 
 #include <sys/zio.h>
 #include <zfeature_common.h>
@@ -89,26 +81,27 @@ typedef const struct zio_checksum_info {
 	zio_checksum_tmpl_init_t	*ci_tmpl_init;
 	zio_checksum_tmpl_free_t	*ci_tmpl_free;
 	zio_checksum_flags_t		ci_flags;
-	char				*ci_name;	/* descriptive name */
+	const char			*ci_name;	/* descriptive name */
 } zio_checksum_info_t;
 
 typedef struct zio_bad_cksum {
-	zio_cksum_t		zbc_expected;
-	zio_cksum_t		zbc_actual;
 	const char		*zbc_checksum_name;
 	uint8_t			zbc_byteswapped;
 	uint8_t			zbc_injected;
 	uint8_t			zbc_has_cksum;	/* expected/actual valid */
 } zio_bad_cksum_t;
 
-extern zio_checksum_info_t zio_checksum_table[ZIO_CHECKSUM_FUNCTIONS];
+_SYS_ZIO_CHECKSUM_H zio_checksum_info_t
+    zio_checksum_table[ZIO_CHECKSUM_FUNCTIONS];
 
 /*
  * Checksum routines.
  */
-extern zio_checksum_t abd_checksum_SHA256;
-extern zio_checksum_t abd_checksum_SHA512_native;
-extern zio_checksum_t abd_checksum_SHA512_byteswap;
+
+/* SHA2 */
+extern zio_checksum_t abd_checksum_sha256;
+extern zio_checksum_t abd_checksum_sha512_native;
+extern zio_checksum_t abd_checksum_sha512_byteswap;
 
 /* Skein */
 extern zio_checksum_t abd_checksum_skein_native;
@@ -122,7 +115,14 @@ extern zio_checksum_t abd_checksum_edonr_byteswap;
 extern zio_checksum_tmpl_init_t abd_checksum_edonr_tmpl_init;
 extern zio_checksum_tmpl_free_t abd_checksum_edonr_tmpl_free;
 
-extern zio_abd_checksum_func_t fletcher_4_abd_ops;
+/* BLAKE3 */
+extern zio_checksum_t abd_checksum_blake3_native;
+extern zio_checksum_t abd_checksum_blake3_byteswap;
+extern zio_checksum_tmpl_init_t abd_checksum_blake3_tmpl_init;
+extern zio_checksum_tmpl_free_t abd_checksum_blake3_tmpl_free;
+
+/* Fletcher 4 */
+_SYS_ZIO_CHECKSUM_H zio_abd_checksum_func_t fletcher_4_abd_ops;
 extern zio_checksum_t abd_fletcher_4_native;
 extern zio_checksum_t abd_fletcher_4_byteswap;
 
@@ -130,8 +130,8 @@ extern int zio_checksum_equal(spa_t *, blkptr_t *, enum zio_checksum,
     void *, uint64_t, uint64_t, zio_bad_cksum_t *);
 extern void zio_checksum_compute(zio_t *, enum zio_checksum,
     struct abd *, uint64_t);
-extern int zio_checksum_error_impl(spa_t *, const blkptr_t *, enum zio_checksum,
-    struct abd *, uint64_t, uint64_t, zio_bad_cksum_t *);
+extern int zio_checksum_error_impl(zio_t *, enum zio_checksum, struct abd *,
+    uint64_t, uint64_t, zio_bad_cksum_t *);
 extern int zio_checksum_error(zio_t *zio, zio_bad_cksum_t *out);
 extern enum zio_checksum spa_dedup_checksum(spa_t *spa);
 extern void zio_checksum_templates_free(spa_t *spa);

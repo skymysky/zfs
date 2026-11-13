@@ -1,23 +1,14 @@
 #!/bin/ksh
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -45,27 +36,23 @@ verify_runnable "global"
 
 function cleanup
 {
-	typeset pool=""
-
 	poolexists $TESTPOOL1 && destroy_pool $TESTPOOL1
 	poolexists $TESTPOOL && destroy_pool $TESTPOOL
 
-	[[ -d $TESTDIR ]] && log_must rm -rf $TESTDIR
-	partition_disk $SIZE $disk 6
+	rm -rf $TESTDIR
 }
 
 log_assert "Storage pools with 16 file based vdevs can be created."
 log_onexit cleanup
 
-disk=${DISKS%% *}
-create_pool $TESTPOOL $disk
+create_pool $TESTPOOL $DISK0
 log_must zfs create -o mountpoint=$TESTDIR $TESTPOOL/$TESTFS
 
 vdevs_list=$(echo $TESTDIR/file.{01..16})
 log_must truncate -s $MINVDEVSIZE $vdevs_list
 
-create_pool "$TESTPOOL1" $vdevs_list
-log_must vdevs_in_pool "$TESTPOOL1" "$vdevs_list"
+create_pool $TESTPOOL1 $vdevs_list
+log_must vdevs_in_pool $TESTPOOL1 "$vdevs_list"
 
 if poolexists $TESTPOOL1; then
 	destroy_pool $TESTPOOL1

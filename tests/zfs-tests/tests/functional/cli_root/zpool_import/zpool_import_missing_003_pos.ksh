@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -59,7 +50,7 @@
 
 verify_runnable "global"
 
-set -A vdevs "" "mirror" "raidz"
+set -A vdevs "" "mirror" "raidz" "draid"
 
 function verify
 {
@@ -92,9 +83,8 @@ function verify
 	[[ ! -e $mtpt/$file ]] && \
 		log_fail "$mtpt/$file missing after import."
 
-	checksum2=$(sum $mymtpt/$file | awk '{print $1}')
-	[[ "$checksum1" != "$checksum2" ]] && \
-		log_fail "Checksums differ ($checksum1 != $checksum2)"
+	read -r checksum2 _ < <(cksum $mymtpt/$file)
+	log_must [ "$checksum1" = "$checksum2" ]
 
 	return 0
 
@@ -102,7 +92,7 @@ function verify
 
 function cleanup
 {
-	cd $DEVICE_DIR || log_fail "Unable change directory to $DEVICE_DIR"
+	log_must cd $DEVICE_DIR
 
 	for pool in $TESTPOOL1 $TESTPOOL2; do
 		if poolexists "$pool" ; then
@@ -131,7 +121,7 @@ function cleanup_all
 	done
 
 	log_must rm -f $DEVICE_DIR/$DEVICE_ARCHIVE
-	cd $CWD || log_fail "Unable change directory to $CWD"
+	log_must cd $CWD
 
 }
 
@@ -141,10 +131,10 @@ log_assert "Verify that import could handle device overlapped."
 
 CWD=$PWD
 
-cd $DEVICE_DIR || log_fail "Unable change directory to $DEVICE_DIR"
+log_must cd $DEVICE_DIR
 log_must tar cf $DEVICE_DIR/$DEVICE_ARCHIVE ${DEVICE_FILE}*
 
-checksum1=$(sum $MYTESTFILE | awk '{print $1}')
+read -r checksum1 _ < <(cksum $MYTESTFILE)
 
 typeset -i i=0
 typeset -i j=0
@@ -200,6 +190,9 @@ while (( i < ${#vdevs[*]} )); do
 					action=log_mustnot
 					;;
 				'raidz')  (( overlap > 1 )) && \
+					action=log_mustnot
+					;;
+				'draid')  (( overlap > 1 )) && \
 					action=log_mustnot
 					;;
 				'')  action=log_mustnot

@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -50,16 +41,12 @@ verify_runnable "global"
 
 function cleanup
 {
-	poolexists "$TESTPOOL" && \
-		destroy_pool "$TESTPOOL"
-	poolexists "$TESTPOOL1" && \
-		destroy_pool "$TESTPOOL1"
+	poolexists $TESTPOOL && destroy_pool $TESTPOOL
+	poolexists $TESTPOOL1 && destroy_pool $TESTPOOL1
 
 	if [[ -n $saved_dump_dev ]]; then
 		log_must eval "dumpadm -u -d $saved_dump_dev > /dev/null"
 	fi
-
-	partition_cleanup
 }
 
 log_assert "'zpool add' should fail with inapplicable scenarios."
@@ -69,27 +56,29 @@ log_onexit cleanup
 mnttab_dev=$(find_mnttab_dev)
 vfstab_dev=$(find_vfstab_dev)
 saved_dump_dev=$(save_dump_dev)
-dump_dev=${disk}${SLICE_PREFIX}${SLICE3}
+dump_dev=$DISK2
 
-create_pool "$TESTPOOL" "${disk}${SLICE_PREFIX}${SLICE0}"
-log_must poolexists "$TESTPOOL"
+create_pool $TESTPOOL $DISK0
+log_must poolexists $TESTPOOL
 
-create_pool "$TESTPOOL1" "${disk}${SLICE_PREFIX}${SLICE1}"
-log_must poolexists "$TESTPOOL1"
+create_pool $TESTPOOL1 $DISK1
+log_must poolexists $TESTPOOL1
 
 unset NOINUSE_CHECK
-log_mustnot zpool add -f "$TESTPOOL" ${disk}${SLICE_PREFIX}${SLICE1}
-log_mustnot zpool add -f "$TESTPOOL" $mnttab_dev
+log_mustnot zpool add -f $TESTPOOL $DISK1
+log_mustnot zpool add --allow-in-use $TESTPOOL $DISK1
+log_mustnot zpool add -f $TESTPOOL $mnttab_dev
+log_mustnot zpool add --allow-in-use $TESTPOOL $mnttab_dev
 if is_linux; then
-       log_mustnot zpool add "$TESTPOOL" $vfstab_dev
+       log_mustnot zpool add $TESTPOOL $vfstab_dev
 else
-       log_mustnot zpool add -f "$TESTPOOL" $vfstab_dev
+       log_mustnot zpool add -f $TESTPOOL $vfstab_dev
 fi
 
-if ! is_linux; then
-	log_must echo "y" | newfs ${DEV_DSKDIR}/$dump_dev > /dev/null 2>&1
-	log_must dumpadm -u -d ${DEV_DSKDIR}/$dump_dev > /dev/null
-	log_mustnot zpool add -f "$TESTPOOL" $dump_dev
+if is_illumos; then
+	log_must eval "new_fs ${DEV_DSKDIR}/$dump_dev > /dev/null 2>&1"
+	log_must eval "dumpadm -u -d ${DEV_DSKDIR}/$dump_dev > /dev/null"
+	log_mustnot zpool add -f $TESTPOOL $dump_dev
 fi
 
 log_pass "'zpool add' should fail with inapplicable scenarios."

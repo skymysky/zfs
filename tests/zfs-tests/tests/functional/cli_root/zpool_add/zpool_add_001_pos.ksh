@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -47,62 +38,41 @@ verify_runnable "global"
 
 function cleanup
 {
-	poolexists $TESTPOOL && \
-		destroy_pool $TESTPOOL
-
-	partition_cleanup
+	poolexists $TESTPOOL && destroy_pool $TESTPOOL
 }
 
 log_assert "'zpool add <pool> <vdev> ...' can add devices to the pool."
 
 log_onexit cleanup
 
-set -A keywords "" "mirror" "raidz" "raidz1" "spare"
+set -A keywords "" "mirror" "raidz" "raidz1" "anymirror" "anymirror1" "anymirror2" "anymirror3" "draid:1s" "draid1:1s" "spare"
 
-case $DISK_ARRAY_NUM in
-0|1)
-	pooldevs="${disk}${SLICE_PREFIX}${SLICE0} \
-		${DEV_DSKDIR}/${disk}${SLICE_PREFIX}${SLICE0} \
-		\"${disk}${SLICE_PREFIX}${SLICE0} \
-		${disk}${SLICE_PREFIX}${SLICE1}\""
-	mirrordevs="\"${DEV_DSKDIR}/${disk}${SLICE_PREFIX}${SLICE0} \
-		${disk}${SLICE_PREFIX}${SLICE1}\""
-	raidzdevs="\"${DEV_DSKDIR}/${disk}${SLICE_PREFIX}${SLICE0} \
-		${disk}${SLICE_PREFIX}${SLICE1}\""
+create_sparse_files "disk" 4 $MINVDEVSIZE2
+create_sparse_files "extradisk" 4 $MINVDEVSIZE2
 
-	;;
-2|*)
-	pooldevs="${DISK0}${SLICE_PREFIX}${SLICE0} \
-		\"${DEV_DSKDIR}/${DISK0}${SLICE_PREFIX}${SLICE0} \
-		${DISK1}${SLICE_PREFIX}${SLICE0}\" \
-		\"${DISK0}${SLICE_PREFIX}${SLICE0} \
-		${DISK0}${SLICE_PREFIX}${SLICE1} \
-		${DISK1}${SLICE_PREFIX}${SLICE1}\"\
-		\"${DISK0}${SLICE_PREFIX}${SLICE0} \
-		${DISK1}${SLICE_PREFIX}${SLICE0} \
-		${DISK0}${SLICE_PREFIX}${SLICE1}\
-		${DISK1}${SLICE_PREFIX}${SLICE1}\""
-	mirrordevs="\"${DEV_DSKDIR}/${DISK0}${SLICE_PREFIX}${SLICE0} \
-		${DISK1}${SLICE_PREFIX}${SLICE0}\""
-	raidzdevs="\"${DEV_DSKDIR}/${DISK0}${SLICE_PREFIX}${SLICE0} \
-		${DISK1}${SLICE_PREFIX}${SLICE0}\""
+pooldevs="${DISK0} \
+	\"${DISK0} ${DISK1}\" \
+	\"${DISK0} ${DISK1} ${DISK2}\""
+mirrordevs="\"${DISK0} ${DISK1}\""
+raidzdevs="\"${DISK0} ${DISK1}\""
+anyraiddevs="\"${extradisks}\""
+draiddevs="\"${DISK0} ${DISK1} ${DISK2}\""
 
-	;;
-esac
 
 typeset -i i=0
 typeset vdev
 eval set -A poolarray $pooldevs
 eval set -A mirrorarray $mirrordevs
 eval set -A raidzarray $raidzdevs
+eval set -A anyraidarray $anyraiddevs
+eval set -A draidarray $draiddevs
 
 while (( $i < ${#keywords[*]} )); do
-	echo "I=$i keyword=${keywords[i]}" >>/tmp/LOG
 
         case ${keywords[i]} in
         ""|spare)
 		for vdev in "${poolarray[@]}"; do
-			create_pool "$TESTPOOL" "${disk}${SLICE_PREFIX}${SLICE6}"
+			create_pool "$TESTPOOL" "$disk0"
 			log_must poolexists "$TESTPOOL"
 			log_must zpool add -f "$TESTPOOL" ${keywords[i]} $vdev
 			log_must vdevs_in_pool "$TESTPOOL" "$vdev"
@@ -113,8 +83,7 @@ while (( $i < ${#keywords[*]} )); do
         mirror)
 		for vdev in "${mirrorarray[@]}"; do
 			create_pool "$TESTPOOL" "${keywords[i]}" \
-				"${disk}${SLICE_PREFIX}${SLICE4}" \
-				"${disk}${SLICE_PREFIX}${SLICE5}"
+				"$disk0" "$disk1"
 			log_must poolexists "$TESTPOOL"
 			log_must zpool add "$TESTPOOL" ${keywords[i]} $vdev
 			log_must vdevs_in_pool "$TESTPOOL" "$vdev"
@@ -125,11 +94,33 @@ while (( $i < ${#keywords[*]} )); do
         raidz|raidz1)
 		for vdev in "${raidzarray[@]}"; do
 			create_pool "$TESTPOOL" "${keywords[i]}" \
-				"${disk}${SLICE_PREFIX}${SLICE4}" \
-				"${disk}${SLICE_PREFIX}${SLICE5}"
+				"$disk0" "$disk1"
 			log_must poolexists "$TESTPOOL"
 			log_must zpool add "$TESTPOOL" ${keywords[i]} $vdev
 			log_must vdevs_in_pool "$TESTPOOL" "$vdev"
+			destroy_pool "$TESTPOOL"
+		done
+
+		;;
+	anymirror*)
+		for vdev in "${anyraidarray[@]}"; do
+			create_pool "$TESTPOOL" "${keywords[i]}" $disks
+			log_must poolexists "$TESTPOOL"
+			log_must zpool add "$TESTPOOL" ${keywords[i]} $vdev
+			log_must vdevs_in_pool "$TESTPOOL" "$vdev"
+			destroy_pool "$TESTPOOL"
+		done
+
+		;;
+        draid:1s|draid1:1s)
+		for vdev in "${draidarray[@]}"; do
+			create_pool "$TESTPOOL" "${keywords[i]}" \
+				"$disk0" "$disk1" "$disk2"
+			log_must poolexists "$TESTPOOL"
+			log_must zpool add "$TESTPOOL" ${keywords[i]} $vdev
+			log_must vdevs_in_pool "$TESTPOOL" "$vdev"
+			log_must vdevs_in_pool "$TESTPOOL" "draid1-0-0"
+			log_must vdevs_in_pool "$TESTPOOL" "draid1-1-0"
 			destroy_pool "$TESTPOOL"
 		done
 

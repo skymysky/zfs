@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
@@ -39,7 +30,7 @@
  * function calls.
  */
 #include <sys/zrlock.h>
-#include <sys/trace_zrlock.h>
+#include <sys/trace_zfs.h>
 
 /*
  * A ZRL can be locked only while there are zero references, so ZRL_LOCKED is
@@ -82,8 +73,10 @@ zrl_add_impl(zrlock_t *zrl, const char *zc)
 				ASSERT3S((int32_t)n, >=, 0);
 #ifdef	ZFS_DEBUG
 				if (zrl->zr_owner == curthread) {
-					DTRACE_PROBE2(zrlock__reentry,
-					    zrlock_t *, zrl, uint32_t, n);
+					DTRACE_PROBE3(zrlock__reentry,
+					    zrlock_t *, zrl,
+					    kthread_t *, curthread,
+					    uint32_t, n);
 				}
 				zrl->zr_owner = curthread;
 				zrl->zr_caller = zc;
@@ -104,16 +97,16 @@ zrl_add_impl(zrlock_t *zrl, const char *zc)
 void
 zrl_remove(zrlock_t *zrl)
 {
-	uint32_t n;
-
 #ifdef	ZFS_DEBUG
 	if (zrl->zr_owner == curthread) {
 		zrl->zr_owner = NULL;
 		zrl->zr_caller = NULL;
 	}
+	int32_t n = atomic_dec_32_nv((uint32_t *)&zrl->zr_refcount);
+	ASSERT3S(n, >=, 0);
+#else
+	atomic_dec_32((uint32_t *)&zrl->zr_refcount);
 #endif
-	n = atomic_dec_32_nv((uint32_t *)&zrl->zr_refcount);
-	ASSERT3S((int32_t)n, >=, 0);
 }
 
 int
@@ -126,7 +119,7 @@ zrl_tryenter(zrlock_t *zrl)
 		    (uint32_t *)&zrl->zr_refcount, 0, ZRL_LOCKED);
 		if (cas == 0) {
 #ifdef	ZFS_DEBUG
-			ASSERT3P(zrl->zr_owner, ==, NULL);
+			ASSERT0P(zrl->zr_owner);
 			zrl->zr_owner = curthread;
 #endif
 			return (1);
@@ -155,15 +148,6 @@ zrl_exit(zrlock_t *zrl)
 }
 
 int
-zrl_refcount(zrlock_t *zrl)
-{
-	ASSERT3S(zrl->zr_refcount, >, ZRL_DESTROYED);
-
-	int n = (int)zrl->zr_refcount;
-	return (n <= 0 ? 0 : n);
-}
-
-int
 zrl_is_zero(zrlock_t *zrl)
 {
 	ASSERT3S(zrl->zr_refcount, >, ZRL_DESTROYED);
@@ -187,9 +171,5 @@ zrl_owner(zrlock_t *zrl)
 }
 #endif
 
-#if defined(_KERNEL) && defined(HAVE_SPL)
-
 EXPORT_SYMBOL(zrl_add_impl);
 EXPORT_SYMBOL(zrl_remove);
-
-#endif

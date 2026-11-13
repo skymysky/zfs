@@ -1,4 +1,5 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 
 #
 # This file and its contents are supplied under the terms of the
@@ -8,7 +9,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -55,6 +56,7 @@ log_must zpool reopen $TESTPOOL
 log_must check_state $TESTPOOL "$REMOVED_DISK_ID" "unavail"
 # Write some data to the pool
 log_must generate_random_file /$TESTPOOL/data $SMALL_FILE_SIZE
+sync_pool $TESTPOOL
 # 4. "Plug back" disk.
 insert_disk $REMOVED_DISK $scsi_host
 # 5. Reopen a pool and verify if removed disk is marked online again.

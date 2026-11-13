@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
@@ -49,10 +40,10 @@ typedef uint16_t	sa_attr_type_t;
  * Attribute to register support for.
  */
 typedef struct sa_attr_reg {
-	char 			*sa_name;	/* attribute name */
-	uint16_t 		sa_length;
-	sa_bswap_type_t		sa_byteswap;	/* bswap functon enum */
-	sa_attr_type_t 		sa_attr; /* filled in during registration */
+	const char		*sa_name;	/* attribute name */
+	uint16_t		sa_length;
+	sa_bswap_type_t		sa_byteswap;	/* bswap function enum */
+	sa_attr_type_t		sa_attr; /* filled in during registration */
 } sa_attr_reg_t;
 
 
@@ -77,7 +68,7 @@ typedef struct sa_bulk_attr {
 	uint16_t		sa_length;
 	sa_attr_type_t		sa_attr;
 	/* the following are private to the sa framework */
-	void 			*sa_addr;
+	void			*sa_addr;
 	uint16_t		sa_buftype;
 	uint16_t		sa_size;
 } sa_bulk_attr_t;
@@ -124,8 +115,8 @@ int sa_handle_get(objset_t *, uint64_t, void *userp,
 int sa_handle_get_from_db(objset_t *, dmu_buf_t *, void *userp,
     sa_handle_type_t, sa_handle_t **);
 void sa_handle_destroy(sa_handle_t *);
-int sa_buf_hold(objset_t *, uint64_t, void *, dmu_buf_t **);
-void sa_buf_rele(dmu_buf_t *, void *);
+int sa_buf_hold(objset_t *, uint64_t, const void *, dmu_buf_t **);
+void sa_buf_rele(dmu_buf_t *, const void *);
 int sa_lookup(sa_handle_t *, sa_attr_type_t, void *buf, uint32_t buflen);
 int sa_update(sa_handle_t *, sa_attr_type_t, void *buf,
     uint32_t buflen, dmu_tx_t *);
@@ -143,7 +134,8 @@ uint64_t sa_handle_object(sa_handle_t *);
 boolean_t sa_attr_would_spill(sa_handle_t *, sa_attr_type_t, int size);
 void sa_spill_rele(sa_handle_t *);
 void sa_register_update_callback(objset_t *, sa_update_cb_t *);
-int sa_setup(objset_t *, uint64_t, sa_attr_reg_t *, int, sa_attr_type_t **);
+int sa_setup(objset_t *, uint64_t, const sa_attr_reg_t *, int,
+    sa_attr_type_t **);
 void sa_tear_down(objset_t *);
 int sa_replace_all_by_template(sa_handle_t *, sa_bulk_attr_t *,
     int, dmu_tx_t *);
@@ -158,7 +150,8 @@ void sa_handle_lock(sa_handle_t *);
 void sa_handle_unlock(sa_handle_t *);
 
 #ifdef _KERNEL
-int sa_lookup_uio(sa_handle_t *, sa_attr_type_t, uio_t *);
+int sa_lookup_uio(sa_handle_t *, sa_attr_type_t, zfs_uio_t *);
+int sa_add_projid(sa_handle_t *, dmu_tx_t *, uint64_t);
 #endif
 
 #ifdef	__cplusplus

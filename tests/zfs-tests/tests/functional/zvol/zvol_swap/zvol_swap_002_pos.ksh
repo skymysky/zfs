@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -39,7 +30,7 @@
 #
 # STRATEGY:
 #	1. Create a new zvol and add it as swap
-#	2. Fill //var/tmp with 80% the size of the zvol
+#	2. Fill //var/tmp (TEST_BASE_DIR) with 80% the size of the zvol
 #	5. Remove the new zvol, and restore original swap devices
 #
 
@@ -54,7 +45,9 @@ function cleanup
 	fi
 }
 
-log_assert "Using a zvol as swap space, fill /var/tmp to 80%."
+log_assert "Using a zvol as swap space, fill $TEST_BASE_DIR to 80%."
+
+log_onexit cleanup
 
 vol=$TESTPOOL/$TESTVOL
 swapdev=${ZVOL_DEVDIR}/$vol
@@ -71,4 +64,4 @@ log_must dd if=/dev/urandom of=$TEMPFILE bs=1048576 count=$count
 log_must rm -f $TEMPFILE
 log_must swap_cleanup $swapdev
 
-log_pass "Using a zvol as swap space, fill /var/tmp to 80%."
+log_pass "Using a zvol as swap space, fill $TEST_BASE_DIR to 80%."

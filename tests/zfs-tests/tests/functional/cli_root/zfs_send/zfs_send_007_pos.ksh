@@ -1,6 +1,5 @@
 #!/bin/ksh
-#
-# CDDL HEADER START
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -9,9 +8,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
-#
-# CDDL HEADER END
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -48,29 +45,26 @@ function cleanup
 
 log_assert "Verify that 'zfs send' drills appropriate holes"
 log_onexit cleanup
-streamfile=$(mktemp $TESTDIR/file.XXXXXX)
-vdev=$(mktemp $TEST_BASE_DIR/file.XXXXXX)
+streamfile=$(mktemp)
+vdev=$(mktemp)
 
 
-test_pool ()
+function test_pool
 {
 	POOL=$1
 	log_must zfs create -o recordsize=512 $POOL/fs
 	mntpnt=$(get_prop mountpoint "$POOL/fs")
-	log_must dd if=/dev/urandom of=${mntpnt}/file bs=512 count=1 2>/dev/null
+	log_must eval "dd if=/dev/urandom of=${mntpnt}/file bs=512 count=1 2>/dev/null"
 	object=$(ls -i $mntpnt | awk '{print $1}')
 	log_must zfs snapshot $POOL/fs@a
 	while true; do
 		log_must find $mntpnt/ -type f -delete
-		sync
+		sync_all_pools
 		log_must mkfiles "$mntpnt/" 4000
-		sync
+		sync_all_pools
 		# check if we started reusing objects
 		object=$(ls -i $mntpnt | sort -n | awk -v object=$object \
-		    '{if ($1 <= object) {exit 1}} END {print $1}')
-		if [[ $? -ne 0 ]]; then
-			break
-		fi
+		    '{if ($1 <= object) {exit 1}} END {print $1}') || break
 	done
 	dd if=/dev/urandom of=${mntpnt}/$FILE bs=512 count=1 seek=1 2>/dev/null
 
@@ -83,13 +77,13 @@ test_pool ()
 	cat $streamfile | log_must zfs receive $POOL/recvfs
 
 	recv_mntpnt=$(get_prop mountpoint "$POOL/recvfs")
-	log_must diff -r $mntpnt $recv_mntpnt
+	log_must directory_diff $mntpnt $recv_mntpnt
 	log_must zfs destroy -rf $POOL/fs
 	log_must zfs destroy -rf $POOL/recvfs
 }
 
 test_pool $TESTPOOL
-log_must truncate --size=1G $vdev
+log_must truncate -s 1G $vdev
 log_must zpool create -o version=1 tmp_pool $vdev
 test_pool tmp_pool
 log_must zpool destroy tmp_pool

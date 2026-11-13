@@ -1,6 +1,5 @@
 #!/bin/ksh -p
-#
-# CDDL HEADER START
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -9,9 +8,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
-#
-# CDDL HEADER END
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -27,6 +24,8 @@ if [ -e $HOSTID_FILE ]; then
 	log_unsupported "System has existing $HOSTID_FILE file"
 fi
 
-log_must set_tunable64 zfs_multihost_history $MMP_HISTORY
+log_must set_tunable64 MULTIHOST_HISTORY $MMP_HISTORY
+log_must set_tunable64 MULTIHOST_INTERVAL $MMP_INTERVAL_DEFAULT
+log_must set_tunable64 MULTIHOST_FAIL_INTERVALS $MMP_FAIL_INTERVALS_DEFAULT
 
 log_pass "mmp setup pass"

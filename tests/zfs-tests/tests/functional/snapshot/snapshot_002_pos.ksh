@@ -1,23 +1,14 @@
 #! /bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -36,7 +27,7 @@
 # DESCRIPTION:
 # An archive of a zfs file system and an archive of its snapshot
 # is identical even though the original file system has
-# changed sinced the snapshot was taken.
+# changed since the snapshot was taken.
 #
 # STRATEGY:
 # 1) Create files in all of the zfs file systems
@@ -51,39 +42,24 @@ verify_runnable "both"
 
 function cleanup
 {
-	if [[ -d $CWD ]]; then
-		cd $CWD || log_fail "Could not cd $CWD"
-	fi
+	[ -d $CWD ] && log_must cd $CWD
 
-        snapexists $SNAPFS
-        if [[ $? -eq 0 ]]; then
-                log_must zfs destroy $SNAPFS
-        fi
+	snapexists $SNAPFS && log_must zfs destroy $SNAPFS
 
-        if [[ -e $SNAPDIR ]]; then
-                log_must rm -rf $SNAPDIR > /dev/null 2>&1
-        fi
-
-        if [[ -e $TESTDIR ]]; then
-                log_must rm -rf $TESTDIR/* > /dev/null 2>&1
-        fi
-
-	if [[ -e /tmp/zfs_snapshot2.$$ ]]; then
-		log_must rm -rf /tmp/zfs_snapshot2.$$ > /dev/null 2>&1
-	fi
-
+	[ -e $TESTDIR ] && log_must rm -rf $TESTDIR/*
+	[ -d "$SNAPSHOT_TARDIR" ] && log_must rm -rf $SNAPSHOT_TARDIR
 }
 
 log_assert "Verify an archive of a file system is identical to " \
     "an archive of its snapshot."
 
+SNAPSHOT_TARDIR="$(mktemp -d "$TEST_BASE_DIR/zfstests_snapshot_002.XXXXXX")"
 log_onexit cleanup
 
 typeset -i COUNT=21
 typeset OP=create
 
-[[ -n $TESTDIR ]] && \
-    rm -rf $TESTDIR/* > /dev/null 2>&1
+[ -n $TESTDIR ] && rm -rf $TESTDIR/*
 
 log_note "Create files in the zfs filesystem..."
 
@@ -91,43 +67,47 @@ typeset i=1
 while [ $i -lt $COUNT ]; do
 	log_must file_write -o $OP -f $TESTDIR/file$i \
 	    -b $BLOCKSZ -c $NUM_WRITES -d $DATA
-
 	(( i = i + 1 ))
 done
 
 log_note "Create a tarball from $TESTDIR contents..."
 CWD=$PWD
-cd $TESTDIR || log_fail "Could not cd $TESTDIR"
-log_must tar cf $TESTDIR/tarball.original.tar file*
-cd $CWD || log_fail "Could not cd $CWD"
+log_must cd $TESTDIR
+log_must tar cf $SNAPSHOT_TARDIR/original.tar .
+log_must cd $CWD
+log_must touch -r $TESTDIR $SNAPSHOT_TARDIR/original.times
 
 log_note "Create a snapshot and mount it..."
 log_must zfs snapshot $SNAPFS
 
 log_note "Remove all of the original files..."
-log_must rm -f $TESTDIR/file* > /dev/null 2>&1
+log_must rm -f $TESTDIR/file*
 
 log_note "Create tarball of snapshot..."
 CWD=$PWD
-cd $SNAPDIR || log_fail "Could not cd $SNAPDIR"
-log_must tar cf $TESTDIR/tarball.snapshot.tar file*
-cd $CWD || log_fail "Could not cd $CWD"
+log_must cd $SNAPDIR
+log_must tar cf $SNAPSHOT_TARDIR/snapshot.tar .
+log_must cd $CWD
 
-log_must mkdir $TESTDIR/original
-log_must mkdir $TESTDIR/snapshot
+log_must mkdir $TESTDIR/original $TESTDIR/snapshot
 
 CWD=$PWD
-cd $TESTDIR/original || log_fail "Could not cd $TESTDIR/original"
-log_must tar xf $TESTDIR/tarball.original.tar
+log_must cd $TESTDIR/original
+log_must tar xf $SNAPSHOT_TARDIR/original.tar
 
-cd $TESTDIR/snapshot || log_fail "Could not cd $TESTDIR/snapshot"
-log_must tar xf $TESTDIR/tarball.snapshot.tar
+log_must cd $TESTDIR/snapshot
+log_must tar xf $SNAPSHOT_TARDIR/snapshot.tar
 
-cd $CWD || log_fail "Could not cd $CWD"
+log_must cd $CWD
 
-diff -q -r $TESTDIR/original $TESTDIR/snapshot > /dev/null 2>&1
-if [[ $? -eq 1 ]]; then
-	log_fail "Directory structures differ."
-fi
+#
+# bsdtar does not restore the times of "." when extracting, so the
+# two directories would keep the times of their extraction, which
+# differ whenever the extractions straddle a second.  Give them the
+# times of the directories that were archived, as GNU tar does.
+#
+log_must touch -r $SNAPSHOT_TARDIR/original.times $TESTDIR/original
+log_must touch -r $SNAPDIR $TESTDIR/snapshot
 
+log_must directory_diff $TESTDIR/original $TESTDIR/snapshot
 log_pass "Directory structures match."

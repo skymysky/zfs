@@ -1,23 +1,14 @@
 #! /bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -49,11 +40,6 @@
 
 verify_runnable "both"
 
-# See issue: https://github.com/zfsonlinux/zfs/issues/6145
-if is_linux; then
-	log_unsupported "Test case occasionally fails"
-fi
-
 # Setup array, 4 elements as a group, refer to:
 # i+0: name of a snapshot
 # i+1: mountpoint of the snapshot
@@ -66,7 +52,17 @@ set -A args "$SNAPFS" "$SNAPDIR" "$TESTPOOL/$TESTCLONE" "$TESTDIR.0" \
 
 function setup_all
 {
+	if is_freebsd; then
+		# Pool creation on zvols is forbidden by default.
+		# Save and the current setting.
+		typeset _saved=$(get_tunable VOL_RECURSIVE)
+		log_must set_tunable64 VOL_RECURSIVE 1
+	fi
 	create_pool $TESTPOOL1 ${ZVOL_DEVDIR}/$TESTPOOL/$TESTVOL
+	if is_freebsd; then
+		# Restore the previous setting.
+		log_must set_tunable64 VOL_RECURSIVE $_saved
+	fi
 	log_must zfs create $TESTPOOL1/$TESTFS
 	log_must zfs set mountpoint=$TESTDIR2 $TESTPOOL1/$TESTFS
 
@@ -80,7 +76,7 @@ function cleanup_all
 	i=0
 	while (( i < ${#args[*]} )); do
 		snapexists ${args[i]} && \
-			log_must zfs destroy -Rf ${args[i]}
+			destroy_dataset "${args[i]}" "-Rf"
 
 		[[ -d ${args[i+3]} ]] && \
 			log_must rm -rf ${args[i+3]}
@@ -91,8 +87,8 @@ function cleanup_all
 		(( i = i + 4 ))
 	done
 
-	datasetexists $TESTPOOL1/$TESTFS  && \
-		log_must zfs destroy -f $TESTPOOL1/$TESTFS
+	datasetexists $TESTPOOL1/$TESTFS && \
+		destroy_dataset $TESTPOOL1/$TESTFS -f
 
 	destroy_pool $TESTPOOL1
 
@@ -108,8 +104,7 @@ log_onexit cleanup_all
 
 setup_all
 
-[[ -n $TESTDIR ]] && \
-    log_must rm -rf $TESTDIR/* > /dev/null 2>&1
+[ -n $TESTDIR ] && log_must rm -rf $TESTDIR/*
 
 typeset -i COUNT=10
 typeset -i i=0
@@ -138,8 +133,7 @@ while (( i < ${#args[*]} )); do
 	if [[ -n ${args[i+3]} ]] ; then
 		log_must zfs set mountpoint=${args[i+3]} ${args[i+2]}
 
-		FILE_COUNT=`ls -Al ${args[i+3]} | grep -v "total" \
-		    | grep -v "\.zfs" | wc -l`
+		FILE_COUNT=$(ls -A ${args[i+3]} | grep -cvF ".zfs")
 		if [[ $FILE_COUNT -ne $COUNT ]]; then
 			ls -Al ${args[i+3]}
 			log_fail "AFTER: ${args[i+3]} contains $FILE_COUNT files(s)."
@@ -153,7 +147,7 @@ while (( i < ${#args[*]} )); do
 			(( j = j + 1 ))
 		done
 
-		FILE_COUNT=`ls -Al ${args[i+3]}/after* | grep -v "total" | wc -l`
+		FILE_COUNT=$(ls -A ${args[i+3]}/after* | wc -l)
 		if [[ $FILE_COUNT -ne $COUNT ]]; then
 			ls -Al ${args[i+3]}
 			log_fail "${args[i+3]} contains $FILE_COUNT after* files(s)."

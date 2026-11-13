@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -43,6 +34,7 @@
 #	*Beyond maximal name length.
 #	*Same property set multiple times via '-o property=value'
 #	*Volume's property set on filesystem
+#	*Exceeding maximum name nesting
 #
 # STRATEGY:
 # 1. Create an array of <filesystem> arguments
@@ -61,8 +53,7 @@ function cleanup
 	# check to see if there is any new fs created during the test
 	# if so destroy it.
 	#
-	for dset in $(zfs list -H | \
-		awk '{print $1}' | grep / ); do
+	for dset in $(zfs list -H | awk '$1 ~ /\/ {print $1}'); do
 		found=false
 		i=0
 		while (( $i < ${#existed_fs[*]} )); do
@@ -89,14 +80,16 @@ set -A args  "$TESTPOOL/" "$TESTPOOL//blah" "$TESTPOOL/@blah" \
 	"$TESTPOOL/blah*blah" "$TESTPOOL/blah blah" \
 	"-s $TESTPOOL/$TESTFS1" "-b 1092 $TESTPOOL/$TESTFS1" \
 	"-b 64k $TESTPOOL/$TESTFS1" "-s -b 32k $TESTPOOL/$TESTFS1" \
-	"$TESTPOOL/$BYND_MAX_NAME"
+	"$TESTPOOL/$BYND_MAX_NAME" "$TESTPOOL/$BYND_NEST_LIMIT" \
+	"$TESTPOOL/." "$TESTPOOL/.." "$TESTPOOL/../blah" "$TESTPOOL/./blah" \
+	"$TESTPOOL/blah/./blah" "$TESTPOOL/blah/../blah"
 
 log_assert "Verify 'zfs create <filesystem>' fails with bad <filesystem> argument."
 
 datasetexists $TESTPOOL/$TESTFS || \
 	log_must zfs create $TESTPOOL/$TESTFS
 
-set -A existed_fs $(zfs list -H | awk '{print $1}' | grep / )
+set -A existed_fs $(zfs list -H | awk '$1 ~ /\// {print $1}')
 
 log_mustnot zfs create $TESTPOOL
 log_mustnot zfs create $TESTPOOL/$TESTFS

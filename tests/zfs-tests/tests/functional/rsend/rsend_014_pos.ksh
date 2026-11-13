@@ -1,4 +1,5 @@
 #!/bin/ksh
+# SPDX-License-Identifier: CDDL-1.0
 
 #
 # This file and its contents are supplied under the terms of the
@@ -8,7 +9,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -46,7 +47,7 @@ log_must cleanup_pool $POOL2
 
 log_must eval "zfs send -R $POOL/$FS@final > $BACKDIR/fs-final-R"
 log_must eval "zfs receive -d $POOL2 < $BACKDIR/fs-final-R"
-log_must_busy zpool export $POOL
+log_must zpool export $POOL
 log_must zpool import $POOL
 
 dstds=$(get_dst_ds $POOL/$FS $POOL2)

@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -36,7 +27,7 @@
 #	Verify 'zfs receive' fails with malformed parameters.
 #
 # STRATEGY:
-#	1. Denfine malformed parameters array
+#	1. Define malformed parameters array
 #	2. Feed the malformed parameters to 'zfs receive'
 #	3. Verify the command should be failed
 #
@@ -49,8 +40,7 @@ function cleanup
 	typeset bkup
 
 	for snap in $init_snap $inc_snap $init_topsnap $inc_topsnap ; do
-		snapexists $snap && \
-			log_must zfs destroy -Rf $snap
+		snapexists $snap && destroy_dataset $snap -Rf
 	done
 
 	for bkup in $full_bkup $inc_bkup $full_topbkup $inc_topbkup; do
@@ -64,13 +54,13 @@ log_onexit cleanup
 
 init_snap=$TESTPOOL/$TESTFS@initsnap
 inc_snap=$TESTPOOL/$TESTFS@incsnap
-full_bkup=/var/tmp/full_bkup.$$
-inc_bkup=/var/tmp/inc_bkup.$$
+full_bkup=$TEST_BASE_DIR/full_bkup.$$
+inc_bkup=$TEST_BASE_DIR/inc_bkup.$$
 
 init_topsnap=$TESTPOOL@initsnap
 inc_topsnap=$TESTPOOL@incsnap
-full_topbkup=/var/tmp/full_topbkup.$$
-inc_topbkup=/var/tmp/inc_topbkup.$$
+full_topbkup=$TEST_BASE_DIR/full_topbkup.$$
+inc_topbkup=$TEST_BASE_DIR/inc_topbkup.$$
 
 log_must zfs snapshot $init_topsnap
 log_must eval "zfs send $init_topsnap > $full_topbkup"
@@ -88,19 +78,14 @@ log_must zfs snapshot $inc_snap
 log_must eval "zfs send -i $init_snap $inc_snap > $inc_bkup"
 log_must touch /$TESTDIR/bar
 
-sync
+sync_all_pools
 
 set -A badargs \
     "" "nonexistent-snap" "blah@blah" "-d" "-d nonexistent-dataset" \
-    "$TESTPOOL/$TESTFS" "$TESTPOOL1" "$TESTPOOL/fs@" "$TESTPOOL/fs@@mysnap" \
+    "$TESTPOOL1" "$TESTPOOL/fs@" "$TESTPOOL/fs@@mysnap" \
     "$TESTPOOL/fs@@" "$TESTPOOL/fs/@mysnap" "$TESTPOOL/fs@/mysnap" \
     "$TESTPOOL/nonexistent-fs/nonexistent-fs" "-d $TESTPOOL/nonexistent-fs" \
     "-d $TESTPOOL/$TESTFS/nonexistent-fs"
-
-if is_global_zone ; then
-	typeset -i n=${#badargs[@]}
-	badargs[$n]="-d $TESTPOOL"
-fi
 
 typeset -i i=0
 while (( i < ${#badargs[*]} ))

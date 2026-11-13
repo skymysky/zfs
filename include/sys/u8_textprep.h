@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
@@ -37,28 +28,6 @@ extern "C" {
 #endif
 
 /*
- * Unicode encoding conversion functions and their macros.
- */
-#define	UCONV_IN_BIG_ENDIAN		0x0001
-#define	UCONV_OUT_BIG_ENDIAN		0x0002
-#define	UCONV_IN_SYSTEM_ENDIAN		0x0004
-#define	UCONV_OUT_SYSTEM_ENDIAN		0x0008
-#define	UCONV_IN_LITTLE_ENDIAN		0x0010
-#define	UCONV_OUT_LITTLE_ENDIAN		0x0020
-#define	UCONV_IGNORE_NULL		0x0040
-#define	UCONV_IN_ACCEPT_BOM		0x0080
-#define	UCONV_OUT_EMIT_BOM		0x0100
-
-extern int uconv_u16tou32(const uint16_t *, size_t *, uint32_t *, size_t *,
-	int);
-extern int uconv_u16tou8(const uint16_t *, size_t *, uchar_t *, size_t *, int);
-extern int uconv_u32tou16(const uint32_t *, size_t *, uint16_t *, size_t *,
-	int);
-extern int uconv_u32tou8(const uint32_t *, size_t *, uchar_t *, size_t *, int);
-extern int uconv_u8tou16(const uchar_t *, size_t *, uint16_t *, size_t *, int);
-extern int uconv_u8tou32(const uchar_t *, size_t *, uint32_t *, size_t *, int);
-
-/*
  * UTF-8 text preparation functions and their macros.
  *
  * Among the macros defined, U8_CANON_DECOMP, U8_COMPAT_DECOMP, and
@@ -67,7 +36,9 @@ extern int uconv_u8tou32(const uchar_t *, size_t *, uint32_t *, size_t *, int);
  */
 #define	U8_STRCMP_CS			(0x00000001)
 #define	U8_STRCMP_CI_UPPER		(0x00000002)
+#if 0
 #define	U8_STRCMP_CI_LOWER		(0x00000004)
+#endif
 
 #define	U8_CANON_DECOMP			(0x00000010)
 #define	U8_COMPAT_DECOMP		(0x00000020)
@@ -79,7 +50,9 @@ extern int uconv_u8tou32(const uchar_t *, size_t *, uint32_t *, size_t *, int);
 #define	U8_STRCMP_NFKC			(U8_COMPAT_DECOMP | U8_CANON_COMP)
 
 #define	U8_TEXTPREP_TOUPPER		(U8_STRCMP_CI_UPPER)
+#ifdef U8_STRCMP_CI_LOWER
 #define	U8_TEXTPREP_TOLOWER		(U8_STRCMP_CI_LOWER)
+#endif
 
 #define	U8_TEXTPREP_NFD			(U8_STRCMP_NFD)
 #define	U8_TEXTPREP_NFC			(U8_STRCMP_NFC)
@@ -90,8 +63,12 @@ extern int uconv_u8tou32(const uchar_t *, size_t *, uint32_t *, size_t *, int);
 #define	U8_TEXTPREP_IGNORE_INVALID	(0x00020000)
 #define	U8_TEXTPREP_NOWAIT		(0x00040000)
 
+#if 0
 #define	U8_UNICODE_320			(0)
 #define	U8_UNICODE_500			(1)
+#else
+#define	U8_UNICODE_500			(0)
+#endif
 #define	U8_UNICODE_LATEST		(U8_UNICODE_500)
 
 #define	U8_VALIDATE_ENTIRE		(0x00100000)
@@ -101,7 +78,7 @@ extern int uconv_u8tou32(const uchar_t *, size_t *, uint32_t *, size_t *, int);
 #define	U8_ILLEGAL_CHAR			(-1)
 #define	U8_OUT_OF_RANGE_CHAR		(-2)
 
-extern int u8_validate(char *, size_t, char **, int, int *);
+extern int u8_validate(const char *, size_t, char **, int, int *);
 extern int u8_strcmp(const char *, const char *, size_t, int, size_t, int *);
 extern size_t u8_textprep_str(char *, size_t *, char *, size_t *, int, size_t,
 	int *);

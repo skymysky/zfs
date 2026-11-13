@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (C) 2016 Romain Dolbeau. All rights reserved.
@@ -210,14 +201,18 @@ DEFINE_GEN_METHODS(aarch64_neonx2);
  * If compiled with -O0, gcc doesn't do any stack frame coalescing
  * and -Wframe-larger-than=1024 is triggered in debug mode.
  */
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic ignored "-Wframe-larger-than="
+#endif
 DEFINE_REC_METHODS(aarch64_neonx2);
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
+#endif
 
 static boolean_t
 raidz_will_aarch64_neonx2_work(void)
 {
-	return (B_TRUE); // __arch64__ requires NEON
+	return (kfpu_allowed());
 }
 
 const raidz_impl_ops_t vdev_raidz_aarch64_neonx2_impl = {

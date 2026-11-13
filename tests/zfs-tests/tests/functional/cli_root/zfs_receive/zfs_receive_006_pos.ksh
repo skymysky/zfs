@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -51,7 +42,7 @@ verify_runnable "both"
 function cleanup
 {
 	for snap in $snap2 $snap1; do
-		datasetexists $snap && log_must zfs destroy -rf $snap
+		datasetexists $snap && destroy_dataset $snap -rf
 	done
 	for file in $fbackup1 $fbackup2 $mntpnt/file1 $mntpnt/file2; do
 		[[ -f $file ]] && log_must rm -f $file
@@ -59,10 +50,10 @@ function cleanup
 
 	if is_global_zone; then
 		datasetexists $TESTPOOL/$TESTFS/$TESTFS1 && \
-			log_must zfs destroy -rf $TESTPOOL/$TESTFS/$TESTFS1
+			destroy_dataset $TESTPOOL/$TESTFS/$TESTFS1 -rf
 	else
 		datasetexists $TESTPOOL/${ZONE_CTR}0 && \
-			log_must zfs destroy -rf $TESTPOOL/${ZONE_CTR}0
+			destroy_dataset $TESTPOOL/${ZONE_CTR}0 -rf
 	fi
 
 }
@@ -75,14 +66,14 @@ ancestor_fs=$TESTPOOL/$TESTFS
 fs=$TESTPOOL/$TESTFS/$TESTFS1
 snap1=$fs@snap1
 snap2=$fs@snap2
-fbackup1=/var/tmp/fbackup1.$$
-fbackup2=/var/tmp/fbackup2.$$
+fbackup1=$TEST_BASE_DIR/fbackup1.$$
+fbackup2=$TEST_BASE_DIR/fbackup2.$$
 
 datasetexists $ancestor_fs || \
 	log_must zfs create $ancestor_fs
 log_must zfs create $fs
 
-mntpnt=$(get_prop mountpoint $fs) || log_fail "get_prop mountpoint $fs"
+mntpnt=$(get_prop mountpoint $fs)
 log_must mkfile 10m $mntpnt/file1
 log_must zfs snapshot $snap1
 log_must mkfile 10m $mntpnt/file2

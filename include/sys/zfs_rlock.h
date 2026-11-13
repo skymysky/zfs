@@ -1,26 +1,20 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ */
+/*
+ * Copyright (c) 2018 by Delphix. All rights reserved.
  */
 
 #ifndef	_SYS_FS_ZFS_RLOCK_H
@@ -30,85 +24,48 @@
 extern "C" {
 #endif
 
-#include <sys/list.h>
 #include <sys/avl.h>
-
-#ifdef _KERNEL
-#include <sys/condvar.h>
-#else
-#include <sys/zfs_context.h>
-#endif
 
 typedef enum {
 	RL_READER,
 	RL_WRITER,
 	RL_APPEND
-} rl_type_t;
+} zfs_rangelock_type_t;
 
-typedef struct zfs_rlock {
-	kmutex_t zr_mutex;	/* protects changes to zr_avl */
-	avl_tree_t zr_avl;	/* avl tree of range locks */
-	uint64_t *zr_size;	/* points to znode->z_size */
-	uint_t *zr_blksz;	/* points to znode->z_blksz */
-	uint64_t *zr_max_blksz; /* points to zfsvfs->z_max_blksz */
-} zfs_rlock_t;
+struct zfs_locked_range;
 
-typedef struct rl {
-	zfs_rlock_t *r_zrl;
-	avl_node_t r_node;	/* avl node link */
-	uint64_t r_off;		/* file range offset */
-	uint64_t r_len;		/* file range length */
-	uint_t r_cnt;		/* range reference count in tree */
-	rl_type_t r_type;	/* range type */
-	kcondvar_t r_wr_cv;	/* cv for waiting writers */
-	kcondvar_t r_rd_cv;	/* cv for waiting readers */
-	uint8_t r_proxy;	/* acting for original range */
-	uint8_t r_write_wanted;	/* writer wants to lock this range */
-	uint8_t r_read_wanted;	/* reader wants to lock this range */
-	list_node_t rl_node;	/* used for deferred release */
-} rl_t;
+typedef void (zfs_rangelock_cb_t)(struct zfs_locked_range *, void *);
 
-/*
- * Lock a range (offset, length) as either shared (RL_READER)
- * or exclusive (RL_WRITER or RL_APPEND).  RL_APPEND is a special type that
- * is converted to RL_WRITER that specified to lock from the start of the
- * end of file.  Returns the range lock structure.
- */
-rl_t *zfs_range_lock(zfs_rlock_t *zrl, uint64_t off, uint64_t len,
-    rl_type_t type);
+typedef struct zfs_rangelock {
+	avl_tree_t rl_tree; /* contains locked_range_t */
+	kmutex_t rl_lock;
+	zfs_rangelock_cb_t *rl_cb;
+	void *rl_arg;
+} zfs_rangelock_t;
 
-/* Unlock range and destroy range lock structure. */
-void zfs_range_unlock(rl_t *rl);
+typedef struct zfs_locked_range {
+	zfs_rangelock_t *lr_rangelock; /* rangelock that this lock applies to */
+	avl_node_t lr_node;	/* avl node link */
+	uint64_t lr_offset;	/* file range offset */
+	uint64_t lr_length;	/* file range length */
+	uint_t lr_count;	/* range reference count in tree */
+	zfs_rangelock_type_t lr_type; /* range type */
+	kcondvar_t lr_write_cv;	/* cv for waiting writers */
+	kcondvar_t lr_read_cv;	/* cv for waiting readers */
+	uint8_t lr_proxy;	/* acting for original range */
+	uint8_t lr_write_wanted; /* writer wants to lock this range */
+	uint8_t lr_read_wanted;	/* reader wants to lock this range */
+} zfs_locked_range_t;
 
-/*
- * Reduce range locked as RW_WRITER from whole file to specified range.
- * Asserts the whole file was previously locked.
- */
-void zfs_range_reduce(rl_t *rl, uint64_t off, uint64_t len);
+void zfs_rangelock_init(zfs_rangelock_t *, zfs_rangelock_cb_t *, void *);
+void zfs_rangelock_fini(zfs_rangelock_t *);
 
-/*
- * AVL comparison function used to order range locks
- * Locks are ordered on the start offset of the range.
- */
-int zfs_range_compare(const void *arg1, const void *arg2);
-
-static inline void
-zfs_rlock_init(zfs_rlock_t *zrl)
-{
-	mutex_init(&zrl->zr_mutex, NULL, MUTEX_DEFAULT, NULL);
-	avl_create(&zrl->zr_avl, zfs_range_compare,
-	    sizeof (rl_t), offsetof(rl_t, r_node));
-	zrl->zr_size = NULL;
-	zrl->zr_blksz = NULL;
-	zrl->zr_max_blksz = NULL;
-}
-
-static inline void
-zfs_rlock_destroy(zfs_rlock_t *zrl)
-{
-	avl_destroy(&zrl->zr_avl);
-	mutex_destroy(&zrl->zr_mutex);
-}
+zfs_locked_range_t *zfs_rangelock_enter(zfs_rangelock_t *,
+    uint64_t, uint64_t, zfs_rangelock_type_t);
+zfs_locked_range_t *zfs_rangelock_tryenter(zfs_rangelock_t *,
+    uint64_t, uint64_t, zfs_rangelock_type_t);
+void zfs_rangelock_exit(zfs_locked_range_t *);
+void zfs_rangelock_reduce(zfs_locked_range_t *, uint64_t, uint64_t);
 
 #ifdef	__cplusplus
 }

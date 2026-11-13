@@ -1,4 +1,5 @@
 #!/bin/ksh
+# SPDX-License-Identifier: CDDL-1.0
 
 #
 # This file and its contents are supplied under the terms of the
@@ -8,7 +9,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -36,9 +37,10 @@ log_assert "Per-vdev ZAPs are created for added vdevs."
 
 log_must zpool add -f $TESTPOOL ${DISK_ARR[1]}
 conf="$TESTDIR/vz006"
-log_must zdb -PC $TESTPOOL > $conf
+log_must eval "zdb -PC $TESTPOOL > $conf"
 
 assert_has_sentinel "$conf"
+assert_root_zap $TESTPOOL "$conf"
 orig_top=$(get_top_vd_zap ${DISK_ARR[1]} $conf)
 assert_zap_common $TESTPOOL ${DISK_ARR[1]} "top" $orig_top
 assert_leaf_zap $TESTPOOL ${DISK_ARR[1]} "$conf"

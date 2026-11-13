@@ -1,23 +1,14 @@
 #!/usr/bin/env perl
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 # Copyright 2016 Nexenta Systems, Inc.
 #
@@ -58,49 +49,26 @@ use Getopt::Std;
 use strict;
 
 my $usage =
-"usage: cstyle [-chpvCP] [-o constructs] file ...
+"usage: cstyle [-cgpvP] file...
 	-c	check continuation indentation inside functions
-	-h	perform heuristic checks that are sometimes wrong
+	-g	print github actions' workflow commands
 	-p	perform some of the more picky checks
 	-v	verbose
-	-C	don't check anything in header block comments
 	-P	check for use of non-POSIX types
-	-o constructs
-		allow a comma-separated list of optional constructs:
-		    doxygen	allow doxygen-style block comments (/** /*!)
-		    splint	allow splint-style lint comments (/*@ ... @*/)
 ";
 
 my %opts;
 
-if (!getopts("cho:pvCP", \%opts)) {
+if (!getopts("cghpvCP", \%opts)) {
 	print $usage;
 	exit 2;
 }
 
 my $check_continuation = $opts{'c'};
-my $heuristic = $opts{'h'};
+my $github_workflow = $opts{'g'} || $ENV{'CI'};
 my $picky = $opts{'p'};
 my $verbose = $opts{'v'};
-my $ignore_hdr_comment = $opts{'C'};
 my $check_posix_types = $opts{'P'};
-
-my $doxygen_comments = 0;
-my $splint_comments = 0;
-
-if (defined($opts{'o'})) {
-	for my $x (split /,/, $opts{'o'}) {
-		if ($x eq "doxygen") {
-			$doxygen_comments = 1;
-		} elsif ($x eq "splint") {
-			$splint_comments = 1;
-		} else {
-			print "cstyle: unrecognized construct \"$x\"\n";
-			print $usage;
-			exit 2;
-		}
-	}
-}
 
 my ($filename, $line, $prev);		# shared globals
 
@@ -113,16 +81,17 @@ if ($verbose) {
 	$fmt = "%s: %d: %s\n";
 }
 
-if ($doxygen_comments) {
-	# doxygen comments look like "/*!" or "/**"; allow them.
-	$hdr_comment_start = qr/^\s*\/\*[\!\*]?$/;
-} else {
-	$hdr_comment_start = qr/^\s*\/\*$/;
-}
+$hdr_comment_start = qr/^\s*\/\*$/;
 
 # Note, following must be in single quotes so that \s and \w work right.
 my $typename = '(int|char|short|long|unsigned|float|double' .
     '|\w+_t|struct\s+\w+|union\s+\w+|FILE)';
+
+# cast or compound-literal type, e.g. "(foo_t *)"
+my $cast = qr/\($typename(?: \*+)?\)/;
+
+# macros should be uppercase, underscores, or digits
+my $macro = '[A-Z_][A-Z_0-9]*\(';
 
 # mapping of old types to POSIX compatible types
 my %old2posix = (
@@ -138,13 +107,11 @@ my %old2posix = (
 );
 
 my $lint_re = qr/\/\*(?:
-	ARGSUSED[0-9]*|NOTREACHED|LINTLIBRARY|VARARGS[0-9]*|
+	NOTREACHED|LINTLIBRARY|VARARGS[0-9]*|
 	CONSTCOND|CONSTANTCOND|CONSTANTCONDITION|EMPTY|
 	FALLTHRU|FALLTHROUGH|LINTED.*?|PRINTFLIKE[0-9]*|
 	PROTOLIB[0-9]*|SCANFLIKE[0-9]*|CSTYLED.*?
     )\*\//x;
-
-my $splint_re = qr/\/\*@.*?@\*\//x;
 
 my $warlock_re = qr/\/\*\s*(?:
 	VARIABLES\ PROTECTED\ BY|
@@ -197,7 +164,10 @@ sub err($) {
 			printf $fmt, $filename, $., $error, $line;
 		} else {
 			printf $fmt, $filename, $., $error;
-		}	
+		}
+		if ($github_workflow) {
+			printf "::error file=%s,line=%s::%s\n", $filename, $., $error;
+		}
 		$err_stat = 1;
 	}
 }
@@ -211,6 +181,9 @@ sub err_prefix($$) {
 		} else {
 			printf $fmt, $filename, $., $error;
 		}
+		if ($github_workflow) {
+			printf "::error file=%s,line=%s::%s\n", $filename, $., $error;
+		}
 		$err_stat = 1;
 	}
 }
@@ -222,6 +195,9 @@ sub err_prev($) {
 			printf $fmt, $filename, $. - 1, $error, $prev;
 		} else {
 			printf $fmt, $filename, $. - 1, $error;
+		}
+		if ($github_workflow) {
+			printf "::error file=%s,line=%s::%s\n", $filename, $., $error;
 		}
 		$err_stat = 1;
 	}
@@ -236,9 +212,9 @@ my $in_cpp = 0;
 my $next_in_cpp = 0;
 
 my $in_comment = 0;
-my $in_header_comment = 0;
 my $comment_done = 0;
 my $in_warlock_comment = 0;
+my $in_macro_call = 0;
 my $in_function = 0;
 my $in_function_header = 0;
 my $function_header_full_indent = 0;
@@ -380,6 +356,9 @@ line: while (<$filehandle>) {
 	if (/[^ \t(]\/\*/ && !/\w\(\/\*.*\*\/\);/) {
 		err("comment preceded by non-blank");
 	}
+	if (/ARGSUSED/) {
+		err("ARGSUSED directive");
+	}
 
 	# is this the beginning or ending of a function?
 	# (not if "struct foo\n{\n")
@@ -415,9 +394,15 @@ line: while (<$filehandle>) {
 			$prev = $line;
 			next line;
 		} elsif ($picky	&& ! (/^\t/ && $function_header_full_indent != 0)) {
-			
+
 			err("continuation line should be indented by 4 spaces");
 		}
+	}
+
+	# If this looks like a top-level macro invocation, remember it so we
+	# don't mistake it for a function declaration below.
+	if (/^$macro/) {
+		$in_macro_call = 1;
 	}
 
 	#
@@ -425,7 +410,7 @@ line: while (<$filehandle>) {
 	# definition, unless it ends with ") bar;", in which case it's a declaration
 	# that uses a macro to generate the type.
 	#
-	if (/^\w+\(/ && !/\) \w+;/) {
+	if (!$in_macro_call && /^\w+\(/ && !/\) \w+;/) {
 		$in_function_header = 1;
 		if (/\($/) {
 			$function_header_full_indent = 1;
@@ -464,7 +449,6 @@ line: while (<$filehandle>) {
 
 	if ($comment_done) {
 		$in_comment = 0;
-		$in_header_comment = 0;
 		$comment_done = 0;
 	}
 	# does this looks like the start of a block comment?
@@ -475,9 +459,6 @@ line: while (<$filehandle>) {
 		$in_comment = 1;
 		/^(\s*)\//;
 		$comment_prefix = $1;
-		if ($comment_prefix eq "") {
-			$in_header_comment = 1;
-		}
 		$prev = $line;
 		next line;
 	}
@@ -487,18 +468,11 @@ line: while (<$filehandle>) {
 			$comment_done = 1;
 		} elsif (/\*\//) {
 			$comment_done = 1;
-			err("improper block comment close")
-			    unless ($ignore_hdr_comment && $in_header_comment);
+			err("improper block comment close");
 		} elsif (!/^$comment_prefix \*[ \t]/ &&
 		    !/^$comment_prefix \*$/) {
-			err("improper block comment")
-			    unless ($ignore_hdr_comment && $in_header_comment);
+			err("improper block comment");
 		}
-	}
-
-	if ($in_header_comment && $ignore_hdr_comment) {
-		$prev = $line;
-		next line;
 	}
 
 	# check for errors that might occur in comments and in code.
@@ -528,16 +502,11 @@ line: while (<$filehandle>) {
 		next line;
 	}
 
-	if ((/[^(]\/\*\S/ || /^\/\*\S/) &&
-	    !(/$lint_re/ || ($splint_comments && /$splint_re/))) {
+	if ((/[^(]\/\*\S/ || /^\/\*\S/) && !/$lint_re/) {
 		err("missing blank after open comment");
 	}
-	if (/\S\*\/[^)]|\S\*\/$/ &&
-	    !(/$lint_re/ || ($splint_comments && /$splint_re/))) {
+	if (/\S\*\/[^)]|\S\*\/$/ && !/$lint_re/) {
 		err("missing blank before close comment");
-	}
-	if (/\/\/\S/) {		# C++ comments
-		err("missing blank after start comment");
 	}
 	# check for unterminated single line comments, but allow them when
 	# they are used to comment out the argument list of a function
@@ -572,7 +541,15 @@ line: while (<$filehandle>) {
 	# multiple comments on the same line.
 	#
 	s/\/\*.*?\*\///g;
-	s/\/\/.*$//;		# C++ comments
+	s/\/\/(?:\s.*)?$//;	# Valid C++ comments
+
+	# After stripping correctly spaced comments, check for (and strip) comments
+	# without a blank.  By checking this after clearing out C++ comments that
+	# correctly have a blank, we guarantee URIs in a C++ comment will not cause
+	# an error.
+	if (s!//.*$!!) {		# C++ comments
+		err("missing blank after start comment");
+	}
 
 	# delete any trailing whitespace; we have already checked for that.
 	s/\s*$//;
@@ -598,7 +575,9 @@ line: while (<$filehandle>) {
 		err("comma or semicolon followed by non-blank");
 	}
 	# allow "for" statements to have empty "while" clauses
-	if (/\s[,;]/ && !/^[\t]+;$/ && !/^\s*for \([^;]*; ;[^;]*\)/) {
+	# allow macro invocations to have empty parameters
+	if (/\s[,;]/ && !/^[\t]+;$/ &&
+	    !($in_macro_call || /^\s*for \([^;]*; ;[^;]*\)/)) {
 		err("comma or semicolon preceded by blank");
 	}
 	if (/^\s*(&&|\|\|)/) {
@@ -706,12 +685,14 @@ line: while (<$filehandle>) {
 	}
 	if ($picky) {
 		# try to detect spaces after casts, but allow (e.g.)
-		# "sizeof (int) + 1", "void (*funcptr)(int) = foo;", and
-		# "int foo(int) __NORETURN;"
-		if ((/^\($typename( \*+)?\)\s/o ||
-		    /\W\($typename( \*+)?\)\s/o) &&
-		    !/sizeof\s*\($typename( \*)?\)\s/o &&
-		    !/\($typename( \*+)?\)\s+=[^=]/o) {
+		# "sizeof (int) + 1", "void (*funcptr)(int) = foo;",
+		# "int foo(int) __NORETURN;", and "(foo_t) { ... }"
+		#
+		# sizeof (type) is not a cast; remove it so it can't mask
+		# a real cast elsewhere on the line.
+		my $tmp = $_;
+		$tmp =~ s/\bsizeof\s*$cast/sizeof/g;
+		if ($tmp =~ /(?:^|\W)$cast(?>\s+)(?!\{|=[^=])/) {
 			err("space after cast");
 		}
 		if (/\b$typename\s*\*\s/o &&
@@ -719,33 +700,31 @@ line: while (<$filehandle>) {
 			err("unary * followed by space");
 		}
 	}
-	if ($check_posix_types) {
+	if ($check_posix_types && !$in_macro_call && !/\bmodule_param\(/) {
 		# try to detect old non-POSIX types.
 		# POSIX requires all non-standard typedefs to end in _t,
 		# but historically these have been used.
+		#
+		# We don't check inside macro invocations because macros have
+		# legitmate uses for these names in function generators.
 		if (/\b(unchar|ushort|uint|ulong|u_int|u_short|u_long|u_char|quad)\b/) {
 			err("non-POSIX typedef $1 used: use $old2posix{$1} instead");
 		}
 	}
-	if ($heuristic) {
-		# cannot check this everywhere due to "struct {\n...\n} foo;"
-		if ($in_function && !$in_declaration &&
-		    /\}./ && !/\}\s+=/ && !/\{.*\}[;,]$/ && !/\}(\s|)*$/ &&
-		    !/\} (else|while)/ && !/\}\}/) {
-			err("possible bad text following right brace");
-		}
-		# cannot check this because sub-blocks in
-		# the middle of code are ok
-		if ($in_function && /^\s+\{/) {
-			err("possible left brace starting a line");
-		}
-	}
-	if (/^\s*else\W/) {
+	if (/^\s*else\b/) {
 		if ($prev =~ /^\s*\}$/) {
 			err_prefix($prev,
 			    "else and right brace should be on same line");
 		}
 	}
+
+	# Macro invocations end with a closing paren, and possibly a semicolon.
+	# We do this check down here to make sure all the regular checks are
+	# applied to calls that appear entirely on a single line.
+	if ($in_macro_call && /\);?$/) {
+		$in_macro_call = 0;
+	}
+
 	$prev = $line;
 }
 
@@ -786,6 +765,7 @@ reset_indent()
 {
 	$cont_in = 0;
 	$cont_off = 0;
+    $cont_noerr = 0;
 }
 
 sub
@@ -822,16 +802,21 @@ process_indent($)
 
 	# regexps used below; keywords taking (), macros, and continued cases
 	my $special = '(?:(?:\}\s*)?else\s+)?(?:if|for|while|switch)\b';
-	my $macro = '[A-Z_][A-Z_0-9]*\(';
 	my $case = 'case\b[^:]*$';
 
 	# skip over enumerations, array definitions, initializers, etc.
-	if ($cont_off <= 0 && !/^\s*$special/ &&
-	    (/(?:(?:\b(?:enum|struct|union)\s*[^\{]*)|(?:\s+=\s*))\{/ ||
-	    (/^\s*\{/ && $prev =~ /=\s*(?:\/\*.*\*\/\s*)*$/))) {
-		$cont_in = 0;
-		$cont_off = tr/{/{/ - tr/}/}/;
-		return;
+	if ($cont_off <= 0 && !/^\s*$special/) {
+		my $aggregate = /\b(?:enum|struct|union)\s*[^{]*\{/;
+		my $initializer = /\s+=\s*(?:$cast\s*)?\{/;
+		# "= {" split across lines, "=" possibly trailed by comments
+		my $split_init = /^\s*\{/ &&
+		    $prev =~ /=\s*(?:$cast\s*)?(?:\/\*.*\*\/\s*)?$/;
+
+		if ($aggregate || $initializer || $split_init) {
+			$cont_in = 0;
+			$cont_off = tr/{/{/ - tr/}/}/;
+			return;
+		}
 	}
 	if ($cont_off) {
 		$cont_off += tr/{/{/ - tr/}/}/;
@@ -972,7 +957,7 @@ process_indent($)
 					$cont_in = 0;
 					last;
 				}
-				if ($rest =~ /^\s*special/) {
+				if ($rest =~ /^\s*$special/) {
 					err("if/for/while/switch not started ".
 					    "on its own line");
 				}
@@ -995,7 +980,7 @@ process_indent($)
 				last;
 			}
 		} elsif (/\:/ && $cont_case && @cont_paren == 0) {
-			err("stuff after multi-line case") if ($rest !~ /$^/);
+			err("stuff after multi-line case") if ($rest !~ /^$/);
 			$cont_in = 0;
 			last;
 		}

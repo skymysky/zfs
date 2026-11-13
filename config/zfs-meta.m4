@@ -1,3 +1,4 @@
+dnl # SPDX-License-Identifier: CDDL-1.0
 dnl #
 dnl # DESCRIPTION:
 dnl # Read meta data from the META file.  When building from a git repository
@@ -60,35 +61,41 @@ AC_DEFUN([ZFS_AC_META], [
 
 		ZFS_META_VERSION=_ZFS_AC_META_GETVAL([Version]);
 		if test -n "$ZFS_META_VERSION"; then
-			AC_DEFINE_UNQUOTED([ZFS_META_VERSION], ["$ZFS_META_VERSION"],
-				[Define the project version.]
-			)
+			AC_DEFINE_UNQUOTED([ZFS_META_VERSION],
+			    ["$ZFS_META_VERSION"],
+			    [Define the project version.])
+			AC_DEFINE_UNQUOTED([SPL_META_VERSION],
+			    [ZFS_META_VERSION],
+			    [Defined for legacy compatibility.])
 			AC_SUBST([ZFS_META_VERSION])
 		fi
 
 		ZFS_META_RELEASE=_ZFS_AC_META_GETVAL([Release]);
-		if test ! -f ".nogitrelease" && git rev-parse --git-dir > /dev/null 2>&1; then
+		if test ! -f "$srcdir/.nogitrelease" && git -C "$srcdir" rev-parse --git-dir > /dev/null 2>&1; then
 			_match="${ZFS_META_NAME}-${ZFS_META_VERSION}"
-			_alias=$(git describe --match=${_match} 2>/dev/null)
-			_release=$(echo ${_alias}|cut -f3- -d'-'|sed 's/-/_/g')
+			_alias=$(git -C "$srcdir" describe --dirty --match=${_match} 2>/dev/null)
+			_release=$(echo ${_alias}|sed "s/${ZFS_META_NAME}//"|cut -f3- -d'-'|tr - .)
 			if test -n "${_release}"; then
-				ZFS_META_RELEASE=${_release}
+				ZFS_META_RELEASE="${ZFS_META_RELEASE}.${_release}"
 				_zfs_ac_meta_type="git describe"
 			else
 				_match="${ZFS_META_NAME}-${ZFS_META_VERSION}-${ZFS_META_RELEASE}"
-	                        _alias=$(git describe --match=${_match} 2>/dev/null)
-	                        _release=$(echo ${_alias}|cut -f3- -d'-'|sed 's/-/_/g')
+	                        _alias=$(git -C "$srcdir" describe --dirty --match=${_match} 2>/dev/null)
+				_release=$(echo ${_alias}|sed 's/${ZFS_META_NAME}//'|cut -f3- -d'-'|tr - .)
 				if test -n "${_release}"; then
-					ZFS_META_RELEASE=${_release}
+					ZFS_META_RELEASE="${ZFS_META_RELEASE}.${_release}"
 					_zfs_ac_meta_type="git describe"
 				fi
 			fi
 		fi
 
 		if test -n "$ZFS_META_RELEASE"; then
-			AC_DEFINE_UNQUOTED([ZFS_META_RELEASE], ["$ZFS_META_RELEASE"],
-				[Define the project release.]
-			)
+			AC_DEFINE_UNQUOTED([ZFS_META_RELEASE],
+			     ["$ZFS_META_RELEASE"],
+			     [Define the project release.])
+			AC_DEFINE_UNQUOTED([SPL_META_RELEASE],
+			    [ZFS_META_RELEASE],
+			    [Defined for legacy compatibility.])
 			AC_SUBST([ZFS_META_RELEASE])
 
 			RELEASE="$ZFS_META_RELEASE"
@@ -108,9 +115,11 @@ AC_DEFUN([ZFS_AC_META], [
 				test -n "$ZFS_META_RELEASE" && 
 				        ZFS_META_ALIAS="$ZFS_META_ALIAS-$ZFS_META_RELEASE"
 				AC_DEFINE_UNQUOTED([ZFS_META_ALIAS],
-					["$ZFS_META_ALIAS"],
-					[Define the project alias string.] 
-				)
+				    ["$ZFS_META_ALIAS"],
+				    [Define the project alias string.])
+				AC_DEFINE_UNQUOTED([SPL_META_ALIAS],
+				    [ZFS_META_ALIAS],
+				    [Defined for legacy compatibility.])
 				AC_SUBST([ZFS_META_ALIAS])
 		fi
 
@@ -128,6 +137,24 @@ AC_DEFUN([ZFS_AC_META], [
 				[Define the project author.]
 			)
 			AC_SUBST([ZFS_META_AUTHOR])
+		fi
+
+		ZFS_META_KVER_MIN=_ZFS_AC_META_GETVAL([Linux-Minimum]);
+		if test -n "$ZFS_META_KVER_MIN"; then
+			AC_DEFINE_UNQUOTED([ZFS_META_KVER_MIN],
+			    ["$ZFS_META_KVER_MIN"],
+			    [Define the minimum compatible kernel version.]
+			)
+			AC_SUBST([ZFS_META_KVER_MIN])
+		fi
+
+		ZFS_META_KVER_MAX=_ZFS_AC_META_GETVAL([Linux-Maximum]);
+		if test -n "$ZFS_META_KVER_MAX"; then
+			AC_DEFINE_UNQUOTED([ZFS_META_KVER_MAX],
+			    ["$ZFS_META_KVER_MAX"],
+			    [Define the maximum compatible kernel version.]
+			)
+			AC_SUBST([ZFS_META_KVER_MAX])
 		fi
 
 		m4_pattern_allow([^LT_(CURRENT|REVISION|AGE)$])

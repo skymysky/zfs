@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -46,31 +37,23 @@
 
 function cleanup
 {
-	if poolexists $TESTPOOL ; then
-                destroy_pool $TESTPOOL
-        fi
-	if [ -d /${TESTPOOL}.root ]
-	then
-		log_must rmdir /${TESTPOOL}.root
-	fi
+	poolexists $TESTPOOL && destroy_pool $TESTPOOL
+	rm -rf /${TESTPOOL}.root
+	rm -f $values
 }
 
 log_onexit cleanup
 
 log_assert "zpool create -R works as expected"
 
-if [[ -n $DISK ]]; then
-	disk=$DISK
-else
-	disk=$DISK0
-fi
+typeset values=$TEST_BASE_DIR/values.$$
 
 log_must rm -f /etc/zfs/zpool.cache
-log_must mkdir /${TESTPOOL}.root
-log_must zpool create -R /${TESTPOOL}.root $TESTPOOL $disk
+log_must rm -rf /${TESTPOOL}.root
+log_must zpool create -R /${TESTPOOL}.root $TESTPOOL $DISK0
 if [ ! -d /${TESTPOOL}.root ]
 then
-	log_fail "Mountpoint was not create when using zpool with -R flag!"
+	log_fail "Mountpoint was not created when using zpool with -R flag!"
 fi
 
 FS=$(zfs list $TESTPOOL)
@@ -80,33 +63,23 @@ then
 fi
 
 log_must zpool get all $TESTPOOL
-zpool get all $TESTPOOL > /tmp/values.$$
+zpool get all $TESTPOOL > $values
 
 # check for the cachefile property, verifying that it's set to 'none'
-grep "$TESTPOOL[ ]*cachefile[ ]*none" /tmp/values.$$ > /dev/null 2>&1
-if [ $? -ne 0 ]
-then
-	log_fail "zpool property \'cachefile\' was not set to \'none\'."
-fi
+log_must grep -q "$TESTPOOL[ ]*cachefile[ ]*none" $values
 
 # check that the root = /mountpoint property is set correctly
-grep "$TESTPOOL[ ]*altroot[ ]*/${TESTPOOL}.root" /tmp/values.$$ > /dev/null 2>&1
-if [ $? -ne 0 ]
-then
-	log_fail "zpool property root was not found in pool output."
-fi
+log_must grep -q "$TESTPOOL[ ]*altroot[ ]*/${TESTPOOL}.root" $values
 
-rm /tmp/values.$$
+rm $values
 
 # finally, check that the pool has no reference in /etc/zfs/zpool.cache
 if [[ -f /etc/zfs/zpool.cache ]] ; then
-	REF=$(strings /etc/zfs/zpool.cache | grep ${TESTPOOL})
-	if [ ! -z "$REF" ]
+	if strings /etc/zfs/zpool.cache | grep -q ${TESTPOOL}
 	then
 		strings /etc/zfs/zpool.cache
 		log_fail "/etc/zfs/zpool.cache appears to have a reference to $TESTPOOL"
 	fi
 fi
-
 
 log_pass "zpool create -R works as expected"

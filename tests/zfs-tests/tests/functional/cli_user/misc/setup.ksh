@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -34,7 +25,7 @@
 
 # This setup script is moderately complex, as it creates scenarios for all
 # of the tests included in this directory. Usually we'd want each test case
-# to setup/teardown it's own configuration, but this would be time consuming
+# to setup/teardown its own configuration, but this would be time consuming
 # given the nature of these tests. However, as a side-effect, one test
 # leaving the system in an unknown state could impact other test cases.
 
@@ -55,7 +46,7 @@ default_setup_noexit "$DISK" "" "volume"
 log_must zfs snapshot $TESTPOOL/$TESTFS@snap
 log_must zfs clone $TESTPOOL/$TESTFS@snap $TESTPOOL/$TESTFS/clone
 # create a file in the filesystem that isn't in the above snapshot
-touch /$TESTDIR/file.txt
+touch $TESTDIR/file.txt
 
 
 # create a non-default property and a child we can use to test inherit
@@ -69,12 +60,12 @@ log_must zfs unmount $TESTPOOL/$TESTFS/$TESTFS2.unmounted
 
 
 # send our snapshot to a known file in /tmp
-zfs send $TESTPOOL/$TESTFS@snap > /tmp/zfstest_datastream.dat
-if [ ! -s /tmp/zfstest_datastream.dat ]
+zfs send $TESTPOOL/$TESTFS@snap > $TEST_BASE_DIR/zfstest_datastream.dat
+if [ ! -s $TEST_BASE_DIR/zfstest_datastream.dat ]
 then
 	log_fail "ZFS send datafile was not created!"
 fi
-log_must chmod 644 /tmp/zfstest_datastream.dat
+log_must chmod 644 $TEST_BASE_DIR/zfstest_datastream.dat
 
 
 # create a filesystem that has particular properties to test set/get
@@ -116,28 +107,28 @@ then
 
 	# Now create several virtual disks to test zpool with
 
-	mkfile $MINVDEVSIZE /$TESTDIR/disk1.dat
-	mkfile $MINVDEVSIZE /$TESTDIR/disk2.dat
-	mkfile $MINVDEVSIZE /$TESTDIR/disk3.dat
-	mkfile $MINVDEVSIZE /$TESTDIR/disk-additional.dat
-	mkfile $MINVDEVSIZE /$TESTDIR/disk-export.dat
-	mkfile $MINVDEVSIZE /$TESTDIR/disk-offline.dat
-	mkfile $MINVDEVSIZE /$TESTDIR/disk-spare1.dat
-	mkfile $MINVDEVSIZE /$TESTDIR/disk-spare2.dat
+	mkfile $MINVDEVSIZE $TEST_BASE_DIR/disk1.dat
+	mkfile $MINVDEVSIZE $TEST_BASE_DIR/disk2.dat
+	mkfile $MINVDEVSIZE $TEST_BASE_DIR/disk3.dat
+	mkfile $MINVDEVSIZE $TEST_BASE_DIR/disk-additional.dat
+	mkfile $MINVDEVSIZE $TEST_BASE_DIR/disk-export.dat
+	mkfile $MINVDEVSIZE $TEST_BASE_DIR/disk-offline.dat
+	mkfile $MINVDEVSIZE $TEST_BASE_DIR/disk-spare1.dat
+	mkfile $MINVDEVSIZE $TEST_BASE_DIR/disk-spare2.dat
 
 	# and create a pool we can perform attach remove replace,
 	# etc. operations with
-	log_must zpool create $TESTPOOL.virt mirror /$TESTDIR/disk1.dat \
-	/$TESTDIR/disk2.dat /$TESTDIR/disk3.dat /$TESTDIR/disk-offline.dat \
-	spare /$TESTDIR/disk-spare1.dat
+	log_must zpool create $TESTPOOL.virt mirror $TEST_BASE_DIR/disk1.dat \
+	$TEST_BASE_DIR/disk2.dat $TEST_BASE_DIR/disk3.dat \
+	$TEST_BASE_DIR/disk-offline.dat spare $TEST_BASE_DIR/disk-spare1.dat
 
 
 	# Offline one of the disks to test online
-	log_must zpool offline $TESTPOOL.virt /$TESTDIR/disk-offline.dat
+	log_must zpool offline $TESTPOOL.virt $TEST_BASE_DIR/disk-offline.dat
 
 
 	# create an exported pool to test import
-	log_must zpool create $TESTPOOL.exported /$TESTDIR/disk-export.dat
+	log_must zpool create $TESTPOOL.exported $TEST_BASE_DIR/disk-export.dat
 	log_must zpool export $TESTPOOL.exported
 
 	set -A props $POOL_PROPS
@@ -153,9 +144,9 @@ then
 	done
 
 	# copy a v1 pool from cli_root
-	cp $STF_SUITE/tests/functional/cli_root/zpool_upgrade/zfs-pool-v1.dat.bz2 \
-	    /$TESTDIR
-	log_must bunzip2 /$TESTDIR/zfs-pool-v1.dat.bz2
-	log_must zpool import -d /$TESTDIR v1-pool
+	cp $STF_SUITE/tests/functional/cli_root/zpool_upgrade/blockfiles/zfs-pool-v1.dat.bz2 \
+	    $TEST_BASE_DIR/
+	log_must bunzip2 $TEST_BASE_DIR/zfs-pool-v1.dat.bz2
+	log_must zpool import -d $TEST_BASE_DIR/ v1-pool
 fi
 log_pass

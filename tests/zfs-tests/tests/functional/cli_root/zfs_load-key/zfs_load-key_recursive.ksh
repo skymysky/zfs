@@ -1,6 +1,5 @@
 #!/bin/ksh -p
-#
-# CDDL HEADER START
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -9,9 +8,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
-#
-# CDDL HEADER END
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -39,7 +36,7 @@ verify_runnable "both"
 function cleanup
 {
 	datasetexists $TESTPOOL/$TESTFS1 && \
-		log_must zfs destroy -r $TESTPOOL/$TESTFS1
+		destroy_dataset $TESTPOOL/$TESTFS1 -r
 }
 log_onexit cleanup
 
@@ -52,15 +49,21 @@ log_must zfs create -o encryption=on -o keyformat=passphrase \
 log_must zfs create -o keyformat=passphrase \
 	-o keylocation=file:///$TESTPOOL/pkey $TESTPOOL/$TESTFS1/child
 
+log_must zfs create -o keyformat=passphrase \
+	-o keylocation=$(get_https_base_url)/PASSPHRASE $TESTPOOL/$TESTFS1/child/child
+
 log_must zfs unmount $TESTPOOL/$TESTFS1
+log_must zfs unload-key $TESTPOOL/$TESTFS1/child/child
 log_must zfs unload-key $TESTPOOL/$TESTFS1/child
 log_must zfs unload-key $TESTPOOL/$TESTFS1
 
 log_must zfs load-key -r $TESTPOOL
 log_must key_available $TESTPOOL/$TESTFS1
 log_must key_available $TESTPOOL/$TESTFS1/child
+log_must key_available $TESTPOOL/$TESTFS1/child/child
 
 log_must zfs mount $TESTPOOL/$TESTFS1
 log_must zfs mount $TESTPOOL/$TESTFS1/child
+log_must zfs mount $TESTPOOL/$TESTFS1/child/child
 
 log_pass "'zfs load-key -r' recursively loads keys"

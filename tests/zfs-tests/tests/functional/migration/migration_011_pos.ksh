@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -34,12 +25,12 @@
 
 #
 # DESCRIPTION:
-# Migrating test file from ZFS fs to UFS fs using cp
+# Migrating test file from ZFS fs to platform native fs using cp
 #
 # STRATEGY:
 # 1. Calculate chksum of testfile
 # 2. CP up test file and place on a ZFS filesystem
-# 3. Extract cp contents to a UFS file system
+# 3. Extract cp contents to a platform native file system
 # 4. Calculate chksum of extracted file
 # 5. Compare old and new chksums.
 #
@@ -48,19 +39,14 @@ verify_runnable "both"
 
 function cleanup
 {
-	rm -rf $NONZFS_TESTDIR/cp$$.cp
-	rm -rf $TESTDIR/$BNAME
+	rm -rf $NONZFS_TESTDIR/cp$$.cp $TESTDIR/$BNAME
 }
 
-log_assert "Migrating test file from ZFS fs to UFS fs using cp"
+log_assert "Migrating test file from ZFS fs to $NEWFS_DEFAULT_FS fs using cp"
 
 log_onexit cleanup
 
-prepare $DNAME "cp $BNAME $TESTDIR/cp$$.cp"
-(( $? != 0 )) && log_fail "Unable to create src archive"
+log_must prepare $DNAME "cp $BNAME $TESTDIR/cp$$.cp"
+log_must migrate $NONZFS_TESTDIR $SUMA $SUMB "cp $TESTDIR/cp$$.cp $BNAME"
 
-migrate $NONZFS_TESTDIR $SUMA $SUMB "cp $TESTDIR/cp$$.cp $BNAME"
-(( $? != 0 )) && log_fail "Uable to successfully migrate test file from" \
-    "ZFS fs to UFS fs"
-
-log_pass "Successully migrated test file from ZFS fs to UFS fs".
+log_pass "Successfully migrated test file from ZFS fs to $NEWFS_DEFAULT_FS fs".

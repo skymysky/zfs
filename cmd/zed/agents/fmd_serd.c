@@ -1,23 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License, Version 1.0 only
- * (the "License").  You may not use this file except in compliance
- * with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2004 Sun Microsystems, Inc.  All rights reserved.
@@ -29,7 +19,7 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
-#include <strings.h>
+#include <string.h>
 #include <sys/list.h>
 #include <sys/time.h>
 
@@ -74,9 +64,18 @@ fmd_serd_eng_alloc(const char *name, uint64_t n, hrtime_t t)
 	fmd_serd_eng_t *sgp;
 
 	sgp = malloc(sizeof (fmd_serd_eng_t));
-	bzero(sgp, sizeof (fmd_serd_eng_t));
+	if (sgp == NULL) {
+		perror("malloc");
+		exit(EXIT_FAILURE);
+	}
+	memset(sgp, 0, sizeof (fmd_serd_eng_t));
 
 	sgp->sg_name = strdup(name);
+	if (sgp->sg_name == NULL) {
+		perror("strdup");
+		exit(EXIT_FAILURE);
+	}
+
 	sgp->sg_flags = FMD_SERD_DIRTY;
 	sgp->sg_n = n;
 	sgp->sg_t = t;
@@ -123,6 +122,12 @@ fmd_serd_hash_create(fmd_serd_hash_t *shp)
 	shp->sh_hashlen = FMD_STR_BUCKETS;
 	shp->sh_hash = calloc(shp->sh_hashlen, sizeof (void *));
 	shp->sh_count = 0;
+
+	if (shp->sh_hash == NULL) {
+		perror("calloc");
+		exit(EXIT_FAILURE);
+	}
+
 }
 
 void
@@ -139,7 +144,7 @@ fmd_serd_hash_destroy(fmd_serd_hash_t *shp)
 	}
 
 	free(shp->sh_hash);
-	bzero(shp, sizeof (fmd_serd_hash_t));
+	memset(shp, 0, sizeof (fmd_serd_hash_t));
 }
 
 void
@@ -234,13 +239,17 @@ fmd_serd_eng_record(fmd_serd_eng_t *sgp, hrtime_t hrt)
 	if (sgp->sg_flags & FMD_SERD_FIRED) {
 		serd_log_msg("  SERD Engine: record %s already fired!",
 		    sgp->sg_name);
-		return (FMD_B_FALSE);
+		return (B_FALSE);
 	}
 
 	while (sgp->sg_count >= sgp->sg_n)
 		fmd_serd_eng_discard(sgp, list_tail(&sgp->sg_list));
 
 	sep = malloc(sizeof (fmd_serd_elem_t));
+	if (sep == NULL) {
+		perror("malloc");
+		exit(EXIT_FAILURE);
+	}
 	sep->se_hrt = hrt;
 
 	list_insert_head(&sgp->sg_list, sep);
@@ -259,11 +268,11 @@ fmd_serd_eng_record(fmd_serd_eng_t *sgp, hrtime_t hrt)
 	    fmd_event_delta(oep->se_hrt, sep->se_hrt) <= sgp->sg_t) {
 		sgp->sg_flags |= FMD_SERD_FIRED | FMD_SERD_DIRTY;
 		serd_log_msg("  SERD Engine: fired %s", sgp->sg_name);
-		return (FMD_B_TRUE);
+		return (B_TRUE);
 	}
 
 	sgp->sg_flags |= FMD_SERD_DIRTY;
-	return (FMD_B_FALSE);
+	return (B_FALSE);
 }
 
 int
@@ -281,7 +290,7 @@ fmd_serd_eng_empty(fmd_serd_eng_t *sgp)
 void
 fmd_serd_eng_reset(fmd_serd_eng_t *sgp)
 {
-	serd_log_msg("  SERD Engine: reseting %s", sgp->sg_name);
+	serd_log_msg("  SERD Engine: resetting %s", sgp->sg_name);
 
 	while (sgp->sg_count != 0)
 		fmd_serd_eng_discard(sgp, list_head(&sgp->sg_list));
@@ -291,8 +300,9 @@ fmd_serd_eng_reset(fmd_serd_eng_t *sgp)
 }
 
 void
-fmd_serd_eng_gc(fmd_serd_eng_t *sgp)
+fmd_serd_eng_gc(fmd_serd_eng_t *sgp, void *arg)
 {
+	(void) arg;
 	fmd_serd_elem_t *sep, *nep;
 	hrtime_t hrt;
 

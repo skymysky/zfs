@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -50,12 +41,10 @@ verify_runnable "both"
 function cleanup
 {
 	for snap in $init_snap $inc_snap $rst_snap $rst_inc_snap; do
-                snapexists $snap && \
-                        log_must zfs destroy -f $snap
+                snapexists $snap && destroy_dataset $snap -f
         done
 
-	datasetexists $rst_root && \
-		log_must zfs destroy -Rf $rst_root
+	datasetexists $rst_root && destroy_dataset $rst_root -Rf
 
 	for file in $full_bkup $inc_bkup \
 			$init_data $inc_data
@@ -74,8 +63,8 @@ log_onexit cleanup
 
 init_snap=$TESTPOOL/$TESTFS@init_snap
 inc_snap=$TESTPOOL/$TESTFS@inc_snap
-full_bkup=/var/tmp/fullbkup.$$
-inc_bkup=/var/tmp/incbkup.$$
+full_bkup=$TEST_BASE_DIR/fullbkup.$$
+inc_bkup=$TEST_BASE_DIR/incbkup.$$
 init_data=$TESTDIR/$TESTFILE1
 inc_data=$TESTDIR/$TESTFILE2
 orig_sum=""
@@ -98,9 +87,7 @@ log_must zfs set mountpoint=$TESTDIR1 $rst_root
 file_write -o create -f $init_data -b $BLOCK_SIZE -c $WRITE_COUNT
 
 log_must zfs snapshot $init_snap
-zfs send $init_snap > $full_bkup
-(( $? != 0 )) && \
-	log_fail "'zfs send' fails to create full send"
+log_must eval "zfs send $init_snap > $full_bkup"
 
 log_note "Verify the send stream is valid to receive."
 
@@ -113,9 +100,7 @@ log_note "Verify 'zfs send -i' can create incremental send stream."
 file_write -o create -f $inc_data -b $BLOCK_SIZE -c $WRITE_COUNT -d 0
 
 log_must zfs snapshot $inc_snap
-zfs send -i $init_snap $inc_snap > $inc_bkup
-(( $? != 0 )) && \
-	log_fail "'zfs send -i' fails to create incremental send"
+log_must eval "zfs send -i $init_snap $inc_snap > $inc_bkup"
 
 log_note "Verify the incremental send stream is valid to receive."
 

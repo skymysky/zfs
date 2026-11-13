@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -134,8 +125,7 @@ dd if=/dev/urandom of=$mntpnt/f18 bs=128k count=64
 touch $mntpnt2/f18
 
 # Remove objects that are intended to be missing.
-rm $mntpnt/h17
-rm $mntpnt2/h*
+rm $mntpnt/h17 $mntpnt2/h*
 
 # Add empty objects to $fs to exercise dmu_traverse code
 for i in {1..100}; do
@@ -145,15 +135,15 @@ done
 log_must zfs snapshot $fs@s1
 log_must zfs snapshot $fs2@s1
 
-log_must zfs send $fs@s1 > $TESTDIR/zr010p
-log_must zfs send $fs2@s1 > $TESTDIR/zr010p2
+log_must eval "zfs send $fs@s1 > $TESTDIR/zr010p"
+log_must eval "zfs send $fs2@s1 > $TESTDIR/zr010p2"
 
 
 #
 # Test that, when we receive a full send as a clone of itself,
 # nop-write saves us all the space used by data blocks.
 #
-cat $TESTDIR/zr010p | log_must zfs receive -o origin=$fs@s1 $rfs
+log_must eval "zfs receive -o origin=$fs@s1 $rfs < $TESTDIR/zr010p"
 size=$(get_prop used $rfs)
 size2=$(get_prop used $fs)
 if [[ $size -ge $(($size2 / 10)) ]] then
@@ -163,15 +153,15 @@ fi
 log_must zfs destroy -fr $rfs
 
 # Correctness testing: receive each full send as a clone of the other fiesystem.
-cat $TESTDIR/zr010p | log_must zfs receive -o origin=$fs2@s1 $rfs
+log_must eval "zfs receive -o origin=$fs2@s1 $rfs < $TESTDIR/zr010p"
 mntpnt_old=$(get_prop mountpoint $fs)
 mntpnt_new=$(get_prop mountpoint $rfs)
-log_must diff -r $mntpnt_old $mntpnt_new
+log_must directory_diff $mntpnt_old $mntpnt_new
 log_must zfs destroy -r $rfs
 
-cat $TESTDIR/zr010p2 | log_must zfs receive -o origin=$fs@s1 $rfs
+log_must eval "zfs receive -o origin=$fs@s1 $rfs < $TESTDIR/zr010p2"
 mntpnt_old=$(get_prop mountpoint $fs2)
 mntpnt_new=$(get_prop mountpoint $rfs)
-log_must diff -r $mntpnt_old $mntpnt_new
+log_must directory_diff $mntpnt_old $mntpnt_new
 
 log_pass "zfs receive of full send as clone works"

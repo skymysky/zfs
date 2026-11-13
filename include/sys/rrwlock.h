@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
@@ -35,9 +26,10 @@
 extern "C" {
 #endif
 
-#include <sys/inttypes.h>
 #include <sys/zfs_context.h>
-#include <sys/refcount.h>
+#include <sys/zfs_refcount.h>
+
+extern uint_t rrw_tsd_key;
 
 /*
  * A reader-writer lock implementation that allows re-entrant reads, but
@@ -57,8 +49,8 @@ typedef struct rrwlock {
 	kmutex_t	rr_lock;
 	kcondvar_t	rr_cv;
 	kthread_t	*rr_writer;
-	refcount_t	rr_anon_rcount;
-	refcount_t	rr_linked_rcount;
+	zfs_refcount_t	rr_anon_rcount;
+	zfs_refcount_t	rr_linked_rcount;
 	boolean_t	rr_writer_wanted;
 	boolean_t	rr_track_all;
 } rrwlock_t;
@@ -70,11 +62,11 @@ typedef struct rrwlock {
  */
 void rrw_init(rrwlock_t *rrl, boolean_t track_all);
 void rrw_destroy(rrwlock_t *rrl);
-void rrw_enter(rrwlock_t *rrl, krw_t rw, void *tag);
-void rrw_enter_read(rrwlock_t *rrl, void *tag);
-void rrw_enter_read_prio(rrwlock_t *rrl, void *tag);
+void rrw_enter(rrwlock_t *rrl, krw_t rw, const void *tag);
+void rrw_enter_read(rrwlock_t *rrl, const void *tag);
+void rrw_enter_read_prio(rrwlock_t *rrl, const void *tag);
 void rrw_enter_write(rrwlock_t *rrl);
-void rrw_exit(rrwlock_t *rrl, void *tag);
+void rrw_exit(rrwlock_t *rrl, const void *tag);
 boolean_t rrw_held(rrwlock_t *rrl, krw_t rw);
 void rrw_tsd_destroy(void *arg);
 
@@ -97,10 +89,10 @@ typedef struct rrmlock {
 
 void rrm_init(rrmlock_t *rrl, boolean_t track_all);
 void rrm_destroy(rrmlock_t *rrl);
-void rrm_enter(rrmlock_t *rrl, krw_t rw, void *tag);
-void rrm_enter_read(rrmlock_t *rrl, void *tag);
+void rrm_enter(rrmlock_t *rrl, krw_t rw, const void *tag);
+void rrm_enter_read(rrmlock_t *rrl, const void *tag);
 void rrm_enter_write(rrmlock_t *rrl);
-void rrm_exit(rrmlock_t *rrl, void *tag);
+void rrm_exit(rrmlock_t *rrl, const void *tag);
 boolean_t rrm_held(rrmlock_t *rrl, krw_t rw);
 
 #define	RRM_READ_HELD(x)	rrm_held(x, RW_READER)

@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -43,11 +34,11 @@ verify_runnable "global"
 
 function cleanup
 {
-	datasetexists $VOLFS && log_must zfs destroy -r $VOLFS
-	datasetexists $ZVOL && log_must zfs destroy -r $ZVOL
+	datasetexists $VOLFS && destroy_dataset $VOLFS -r
+	datasetexists $ZVOL && destroy_dataset $ZVOL -r
 	log_must zfs inherit snapdev $TESTPOOL
 	block_device_wait
-	udev_cleanup
+	is_linux && udev_cleanup
 }
 
 log_assert "Verify that ZFS volume property 'snapdev' works as expected."
@@ -117,5 +108,18 @@ log_must zfs set snapdev=visible $TESTPOOL
 verify_inherited 'snapdev' 'hidden' $SUBZVOL $VOLFS
 blockdev_missing $SUBSNAPDEV
 blockdev_exists $SNAPDEV
+log_must zfs destroy $SNAP
+
+# 4. Verify "rename" is correctly reflected when "snapdev=visible"
+# 4.1 First create a snapshot and verify the device is present
+log_must zfs snapshot $SNAP
+log_must zfs set snapdev=visible $ZVOL
+blockdev_exists $SNAPDEV
+# 4.2 rename the snapshot and verify the devices are updated
+log_must zfs rename $SNAP $SNAP-new
+blockdev_missing $SNAPDEV
+blockdev_exists $SNAPDEV-new
+# 4.3 cleanup
+log_must zfs destroy $SNAP-new
 
 log_pass "ZFS volume property 'snapdev' works as expected"

@@ -1,4 +1,5 @@
 #!/bin/ksh
+# SPDX-License-Identifier: CDDL-1.0
 
 #
 # This file and its contents are supplied under the terms of the
@@ -8,7 +9,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -35,12 +36,14 @@ log_must zpool create -f $TESTPOOL $DISK
 
 # Make the pool.
 conf="$TESTDIR/vz005"
-log_must zdb -PC $TESTPOOL > $conf
+log_must eval "zdb -PC $TESTPOOL > $conf"
 assert_has_sentinel "$conf"
+assert_root_zap $TESTPOOL "$conf"
 orig_top=$(get_top_vd_zap $DISK $conf)
 orig_leaf=$(get_leaf_vd_zap $DISK $conf)
 assert_zap_common $TESTPOOL $DISK "top" $orig_top
 assert_zap_common $TESTPOOL $DISK "leaf" $orig_leaf
+sync_all_pools
 
 # Export the pool.
 log_must zpool export $TESTPOOL
@@ -49,7 +52,7 @@ log_must zpool export $TESTPOOL
 log_must zpool import $TESTPOOL
 
 # Verify that ZAPs persisted.
-log_must zdb -PC $TESTPOOL > $conf
+log_must eval "zdb -PC $TESTPOOL > $conf"
 
 new_top=$(get_top_vd_zap $DISK $conf)
 new_leaf=$(get_leaf_vd_zap $DISK $conf)

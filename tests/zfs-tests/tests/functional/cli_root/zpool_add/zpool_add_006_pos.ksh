@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -46,14 +37,8 @@ verify_runnable "global"
 
 function cleanup
 {
-	poolexists $TESTPOOL1 && \
-		destroy_pool $TESTPOOL1
-
-	poolexists $TESTPOOL && \
-		destroy_pool $TESTPOOL
-
-	[[ -d $TESTDIR ]] && log_must rm -rf $TESTDIR
-	partition_cleanup
+	poolexists $TESTPOOL1 && destroy_pool $TESTPOOL1
+	rm -rf $TESTDIR
 }
 
 log_assert "Adding a large number of file based vdevs to a zpool works."
@@ -66,12 +51,12 @@ create_pool "$TESTPOOL1" "$TESTDIR/file.00"
 vdevs_list=$(echo $TESTDIR/file.{01..16})
 log_must truncate -s $MINVDEVSIZE $vdevs_list
 
-log_must zpool add -f "$TESTPOOL1" $vdevs_list
-log_must vdevs_in_pool "$TESTPOOL1" "$vdevs_list"
+log_must zpool add -f $TESTPOOL1 $vdevs_list
+log_must vdevs_in_pool $TESTPOOL1 "$vdevs_list"
 
 # Attempt to add a file based vdev that's too small.
 log_must truncate -s 32m $TESTDIR/broken_file
-log_mustnot zpool add -f "$TESTPOOL1" ${TESTDIR}/broken_file
-log_mustnot vdevs_in_pool "$TESTPOOL1" "${TESTDIR}/broken_file"
+log_mustnot zpool add -f $TESTPOOL1 ${TESTDIR}/broken_file
+log_mustnot vdevs_in_pool $TESTPOOL1 ${TESTDIR}/broken_file
 
 log_pass "Adding a large number of file based vdevs to a zpool works."

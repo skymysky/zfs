@@ -1,22 +1,13 @@
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -73,17 +64,17 @@ function set_n_check_prop
 			reservation|reserv|quota )
 				if [[ $expect_value == "none" ]]; then
 					[[ $cur_value != "0" ]] && \
-						log_fail "The '$dataset' '$prop' value \
-						'$cur_value' is not expected."
+						log_fail "The '$dataset' '$prop' value" \
+						"'$cur_value' is not expected."
 				elif [[ $cur_value != $expect_value ]]; then
-					log_fail "The '$dataset' '$prop' value '$cur_value' \
-					does not equal the expected value '$expect_value'."
+					log_fail "The '$dataset' '$prop' value '$cur_value'" \
+					"does not equal the expected value '$expect_value'."
 				fi
 				;;
 			* )
 				if [[ $cur_value != $expect_value ]]; then
-					log_fail "The '$dataset' '$prop' value '$cur_value' \
-					does not equal the expected value '$expect_value'."
+					log_fail "The '$dataset' '$prop' value '$cur_value'" \
+					"does not equal the expected value '$expect_value'."
 				fi
 				;;
 		esac
@@ -97,8 +88,8 @@ function set_n_check_prop
 
 		if [[ "$expect_value" != "" && "$cur_value" != "$old_value" ]];
 		then
-			log_fail "The '$dataset' '$prop' value '$cur_value' \
-				should equal with '$old_value'."
+			log_fail "The '$dataset' '$prop' value '$cur_value'" \
+				"should equal '$old_value'."
 		fi
 	fi
 }
@@ -119,8 +110,8 @@ function cleanup_user_prop
 
 		typeset prop
 		for prop in $user_prop; do
-			zfs inherit $prop $dt
-			(($? != 0)) && log_must zfs inherit $prop $dt
+			zfs inherit $prop $dt ||
+				log_must zfs inherit $prop $dt
 		done
 	done
 }
@@ -156,7 +147,7 @@ function random_string
 }
 
 #
-# Get vaild user defined property name
+# Get valid user defined property name
 #
 # $1 user defined property name length
 #
@@ -189,7 +180,7 @@ function valid_user_property
 }
 
 #
-# Get invaild user defined property name
+# Get invalid user defined property name
 #
 # $1 user defined property name length
 #
@@ -225,9 +216,7 @@ function user_property_value
 {
 	typeset -i len=${1:-100}
 
-	typeset value=$(random_string ALL_CHAR $len)
-
-	echo "$value"
+	random_string ALL_CHAR $len
 }
 
 #
@@ -244,11 +233,7 @@ function check_user_prop
 	typeset expect_value="$3"
 	typeset value=$(zfs get -p -H -o value "$user_prop" $dtst 2>&1)
 
-	if [[ "$expect_value" == "$value" ]]; then
-		return 0
-	else
-		return 1
-	fi
+	[ "$expect_value" = "$value" ]
 }
 
 #
@@ -258,12 +243,96 @@ function get_source
 {
 	typeset prop=$1
 	typeset dataset=$2
-	typeset source
 
-	source=$(zfs get -H -o source $prop $dataset)
-        if (($? != 0)); then
+	zfs get -H -o source $prop $dataset ||
                 log_fail "Unable to get $prop source for dataset $dataset"
-        fi
+}
 
-	echo "$source"
+#
+# Verify property $2 is set from source $4 on dataset $1 and has value $3.
+#
+# $1 checked dataset
+# $2 user property
+# $3 property value
+# $4 source
+#
+# Returns: 0 if both expected source and value match, 1 otherwise
+#
+function check_prop_source
+{
+        typeset dataset="$1"
+        typeset prop="$2"
+        typeset value="$3"
+        typeset source="$4"
+        typeset chk_value=$(get_prop "$prop" "$dataset")
+        typeset chk_source=$(get_source "$prop" "$dataset")
+
+	if [[ "$chk_value" != "$value" || "$chk_source" != "$source" ]]
+	then
+		log_note "expected (value '$value', source '$source')," \
+			"got (value '$chk_value', source '$chk_source')"
+		return 1
+	else
+		return 0
+	fi
+}
+
+#
+# Verify target dataset $1 inherit property $2 from dataset $3.
+#
+# $1 checked dataset
+# $2 property
+# $3 inherited dataset
+#
+# Returns: 0 if property has expected value and is inherited, 1 otherwise
+#
+function check_prop_inherit
+{
+        typeset checked_dtst="$1"
+        typeset prop="$2"
+        typeset inherited_dtst="$3"
+        typeset inherited_value=$(get_prop "$prop" "$inherited_dtst")
+        typeset value=$(get_prop "$prop" "$checked_dtst")
+        typeset source=$(get_source "$prop" "$checked_dtst")
+
+        [ "$value" = "$inherited_value" ] &&
+            [ "$source" = "inherited from $inherited_dtst" ]
+}
+
+#
+# Verify property $2 received value on dataset $1 has value $3
+#
+# $1 checked dataset
+# $2 property name
+# $3 checked value
+#
+# Returns: 0 if property has expected value and is received, 1 otherwise
+#
+function check_prop_received
+{
+        typeset dataset="$1"
+        typeset prop="$2"
+        typeset value="$3"
+
+        received=$(zfs get -H -o received "$prop" "$dataset") ||
+                log_fail "Unable to get $prop received value for dataset $dataset"
+        [ "$received" = "$value" ]
+}
+
+#
+# Verify user property $2 is not set on dataset $1
+#
+# $1 checked dataset
+# $2 property name
+#
+# Returns: 0 if property is missing (not set), 1 otherwise
+#
+function check_prop_missing
+{
+        typeset dataset="$1"
+        typeset prop="$2"
+
+        value=$(zfs get -H -o value "$prop" "$dataset") ||
+                log_fail "Unable to get $prop value for dataset $dataset"
+        [ "$value" = "-" ]
 }

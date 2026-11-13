@@ -1,6 +1,5 @@
 #!/bin/ksh -p
-#
-# CDDL HEADER START
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -9,9 +8,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
-#
-# CDDL HEADER END
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -28,10 +25,11 @@
 # STRATEGY:
 # 1. Create an encryption dataset with 200k PBKDF2 iterations
 # 2. Unmount the dataset
-# 3. Change the PBKDF2 iterations to 150k
-# 4. Verify the PBKDF2 iterations
-# 5. Unload the dataset's key
-# 6. Attempt to load the dataset's key
+# 3. Verify iterations with a size suffix (150K) are rejected
+# 4. Change the PBKDF2 iterations to 150k
+# 5. Verify the PBKDF2 iterations
+# 6. Unload the dataset's key
+# 7. Attempt to load the dataset's key
 #
 
 verify_runnable "both"
@@ -52,7 +50,7 @@ function verify_pbkdf2iters
 function cleanup
 {
 	datasetexists $TESTPOOL/$TESTFS1 && \
-		log_must zfs destroy -f $TESTPOOL/$TESTFS1
+		destroy_dataset $TESTPOOL/$TESTFS1 -f
 }
 log_onexit cleanup
 
@@ -64,6 +62,10 @@ log_must zfs create -o encryption=on -o keyformat=passphrase \
 	$TESTPOOL/$TESTFS1
 
 log_must zfs unmount $TESTPOOL/$TESTFS1
+log_must verify_pbkdf2iters $TESTPOOL/$TESTFS1 "200000"
+
+# An iteration count is not a size, so size suffixes are rejected
+log_mustnot zfs change-key -o pbkdf2iters=150K $TESTPOOL/$TESTFS1
 log_must verify_pbkdf2iters $TESTPOOL/$TESTFS1 "200000"
 
 log_must zfs change-key -o pbkdf2iters=150000 $TESTPOOL/$TESTFS1

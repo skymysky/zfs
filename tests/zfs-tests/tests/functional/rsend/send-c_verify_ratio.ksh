@@ -1,4 +1,5 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 
 #
 # This file and its contents are supplied under the terms of the
@@ -8,11 +9,12 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
-# Copyright (c) 2015 by Delphix. All rights reserved.
+# Copyright (c) 2015, Delphix. All rights reserved.
+# Copyright (c) 2019, Kjeld Schouten-Lebbing. All rights reserved.
 #
 
 . $STF_SUITE/tests/functional/rsend/rsend.kshlib
@@ -35,9 +37,9 @@ log_assert "Verify send -c streams are compressed"
 log_onexit cleanup_pool $POOL2
 
 typeset sendfs=$POOL2/$FS
-typeset megs=128
+typeset megs=64
 
-for prop in $(get_rand_compress_any 6); do
+for prop in "${compress_prop_vals[@]}"; do
 	for compressible in 'yes' 'no'; do
 		log_must zfs create -o compress=$prop $sendfs
 

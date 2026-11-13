@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 
 /*
@@ -46,15 +37,19 @@ extern "C" {
 #define	__x86
 #endif
 
+#if defined(_ILP32)
+/* x32-specific defines; careful to *not* define _LP64 here */
+#else
 #if !defined(_LP64)
 #define	_LP64
 #endif
-
-#if !defined(_LITTLE_ENDIAN)
-#define	_LITTLE_ENDIAN
 #endif
 
-#define	_SUNOS_VTOC_16
+#if !defined(_ZFS_LITTLE_ENDIAN)
+#define	_ZFS_LITTLE_ENDIAN
+#endif
+
+#define	HAVE_EFFICIENT_UNALIGNED_ACCESS
 
 /* i386 arch specific defines */
 #elif defined(__i386) || defined(__i386__)
@@ -71,11 +66,11 @@ extern "C" {
 #define	_ILP32
 #endif
 
-#if !defined(_LITTLE_ENDIAN)
-#define	_LITTLE_ENDIAN
+#if !defined(_ZFS_LITTLE_ENDIAN)
+#define	_ZFS_LITTLE_ENDIAN
 #endif
 
-#define	_SUNOS_VTOC_16
+#define	HAVE_EFFICIENT_UNALIGNED_ACCESS
 
 /* powerpc arch specific defines */
 #elif defined(__powerpc) || defined(__powerpc__) || defined(__powerpc64__)
@@ -98,10 +93,28 @@ extern "C" {
 #endif
 #endif
 
-#define	_SUNOS_VTOC_16
+#define	HAVE_EFFICIENT_UNALIGNED_ACCESS
+
+#if defined(__BYTE_ORDER)
+#if defined(__BIG_ENDIAN) && __BYTE_ORDER == __BIG_ENDIAN
+#define	_ZFS_BIG_ENDIAN
+#elif defined(__LITTLE_ENDIAN) && __BYTE_ORDER == __LITTLE_ENDIAN
+#define	_ZFS_LITTLE_ENDIAN
+#endif
+#elif defined(_BYTE_ORDER)
+#if defined(_BIG_ENDIAN) && _BYTE_ORDER == _BIG_ENDIAN
+#define	_ZFS_BIG_ENDIAN
+#elif defined(_LITTLE_ENDIAN) && _BYTE_ORDER == _LITTLE_ENDIAN
+#define	_ZFS_LITTLE_ENDIAN
+#endif
+#elif defined(_BIG_ENDIAN) && !defined(_LITTLE_ENDIAN)
+#define	_ZFS_BIG_ENDIAN
+#elif defined(_LITTLE_ENDIAN) && !defined(_BIG_ENDIAN)
+#define	_ZFS_LITTLE_ENDIAN
+#endif
 
 /* arm arch specific defines */
-#elif defined(__arm) || defined(__arm__) || defined(__aarch64__)
+#elif defined(__arm) || defined(__arm__)
 
 #if !defined(__arm)
 #define	__arm
@@ -111,23 +124,32 @@ extern "C" {
 #define	__arm__
 #endif
 
-#if defined(__aarch64__)
-#if !defined(_LP64)
-#define	_LP64
-#endif
-#else
 #if !defined(_ILP32)
 #define	_ILP32
 #endif
-#endif
 
-#if defined(__ARMEL__) || defined(__AARCH64EL__)
-#define	_LITTLE_ENDIAN
+#if defined(__ARMEL__)
+#define	_ZFS_LITTLE_ENDIAN
 #else
-#define	_BIG_ENDIAN
+#define	_ZFS_BIG_ENDIAN
 #endif
 
-#define	_SUNOS_VTOC_16
+#if defined(__ARM_FEATURE_UNALIGNED)
+#define	HAVE_EFFICIENT_UNALIGNED_ACCESS
+#endif
+
+/* aarch64 arch specific defines */
+#elif defined(__aarch64__)
+
+#if !defined(_LP64)
+#define	_LP64
+#endif
+
+#if defined(__AARCH64EL__)
+#define	_ZFS_LITTLE_ENDIAN
+#else
+#define	_ZFS_BIG_ENDIAN
+#endif
 
 /* sparc arch specific defines */
 #elif defined(__sparc) || defined(__sparc__)
@@ -140,8 +162,7 @@ extern "C" {
 #define	__sparc__
 #endif
 
-#define	_BIG_ENDIAN
-#define	_SUNOS_VTOC_16
+#define	_ZFS_BIG_ENDIAN
 
 #if defined(__arch64__)
 #if !defined(_LP64)
@@ -165,30 +186,63 @@ extern "C" {
 #endif
 #endif
 
-#define	_BIG_ENDIAN
-#define	_SUNOS_VTOC_16
+#define	_ZFS_BIG_ENDIAN
 
 /* MIPS arch specific defines */
 #elif defined(__mips__)
 
 #if defined(__MIPSEB__)
-#define	_BIG_ENDIAN
+#define	_ZFS_BIG_ENDIAN
 #elif defined(__MIPSEL__)
-#define	_LITTLE_ENDIAN
+#define	_ZFS_LITTLE_ENDIAN
 #else
 #error MIPS no endian specified
 #endif
 
-#ifndef _LP64
+#if !defined(_LP64) && !defined(_ILP32)
 #define	_ILP32
 #endif
 
-#define	_SUNOS_VTOC_16
+/*
+ * RISC-V arch specific defines
+ * only RV64G (including atomic) LP64 is supported yet
+ */
+#elif defined(__riscv) && defined(__riscv_xlen) && __riscv_xlen == 64 && \
+	defined(__riscv_atomic) && __riscv_atomic
+
+#if !defined(_LP64)
+#define	_LP64 1
+#endif
+
+#ifndef	__riscv__
+#define	__riscv__
+#endif
+
+#ifndef	__rv64g__
+#define	__rv64g__
+#endif
+
+#define	_ZFS_LITTLE_ENDIAN
+
+/*
+ * LoongArch arch specific defines
+ * only LoongArch64 is supported yet
+ */
+#elif defined(__loongarch__) && defined(__loongarch_lp64)
+
+#if !defined(_LP64)
+#define	_LP64
+#endif
+
+#define	_ZFS_LITTLE_ENDIAN
+
+/* not all LoongArch cores support unaligned accesses in hardware */
+#define	_ALIGNMENT_REQUIRED	1
 
 #else
 /*
  * Currently supported:
- * x86_64, i386, arm, powerpc, s390, sparc, and mips
+ * x86_64, x32, i386, arm, powerpc, s390, sparc, mips, RV64G, and LoongArch64
  */
 #error "Unsupported ISA type"
 #endif
@@ -201,12 +255,12 @@ extern "C" {
 #error "Neither _ILP32 or _LP64 are defined"
 #endif
 
-#if defined(_LITTLE_ENDIAN) && defined(_BIG_ENDIAN)
-#error "Both _LITTLE_ENDIAN and _BIG_ENDIAN are defined"
+#if defined(_ZFS_LITTLE_ENDIAN) && defined(_ZFS_BIG_ENDIAN)
+#error "Both _ZFS_LITTLE_ENDIAN and _ZFS_BIG_ENDIAN are defined"
 #endif
 
-#if !defined(_LITTLE_ENDIAN) && !defined(_BIG_ENDIAN)
-#error "Neither _LITTLE_ENDIAN nor _BIG_ENDIAN are defined"
+#if !defined(_ZFS_LITTLE_ENDIAN) && !defined(_ZFS_BIG_ENDIAN)
+#error "Neither _ZFS_LITTLE_ENDIAN nor _ZFS_BIG_ENDIAN are defined"
 #endif
 
 #ifdef  __cplusplus

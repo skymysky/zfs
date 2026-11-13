@@ -1,23 +1,14 @@
 #! /bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -57,18 +48,16 @@ function cleanup
 	log_must zfs mount -a
 	unset __ZFS_POOL_RESTRICT
 
-	for snap in "$SNAPPOOL.1" "$SNAPPOOL"
-	do
-		snapexists $snap
-		[[ $? -eq 0 ]] && \
-			log_must zfs destroy $snap
+	for snap in "$SNAPPOOL.1" "$SNAPPOOL"; do
+		if snapexists $snap; then
+			destroy_snapshot $snap
+		fi
 	done
 
-	for fs in "$TESTPOOL/$TESTFILE/$TESTFILE.1" "$TESTPOOL/$TESTFILE"
-	do
-		datasetexists $fs
-		[[ $? -eq 0 ]] && \
-			log_must zfs destroy -r $fs
+	for fs in "$TESTPOOL/$TESTFILE/$TESTFILE.1" "$TESTPOOL/$TESTFILE"; do
+		if datasetexists $fs; then
+			destroy_dataset $fs -r
+		fi
 	done
 
 	[[ -e /$TESTPOOL ]] && \
@@ -84,6 +73,7 @@ log_must zfs rollback $SNAPPOOL
 log_mustnot zfs snapshot $SNAPPOOL
 
 log_must touch /$TESTPOOL/$TESTFILE
+sync_pool $TESTPOOL
 
 log_must zfs rollback $SNAPPOOL
 log_must zfs create $TESTPOOL/$TESTFILE
@@ -94,6 +84,15 @@ log_note "Verify rollback of multiple nested file systems succeeds."
 log_must zfs snapshot $TESTPOOL/$TESTFILE@$TESTSNAP
 log_must zfs snapshot $SNAPPOOL.1
 
+#
+# Linux: Issuing a `df` seems to properly force any negative dcache entries to
+# be invalidated preventing failures when accessing the mount point. Additional
+# investigation required.
+#
+# https://github.com/openzfs/zfs/issues/6143
+#
+log_must eval "df >/dev/null"
+
 export __ZFS_POOL_RESTRICT="$TESTPOOL"
 log_must zfs unmount -a
 log_must zfs mount -a
@@ -102,5 +101,6 @@ unset __ZFS_POOL_RESTRICT
 log_must touch /$TESTPOOL/$TESTFILE/$TESTFILE.1
 
 log_must zfs rollback $SNAPPOOL.1
+log_must eval "df >/dev/null"
 
 log_pass "Rollbacks succeed when nested file systems are present."

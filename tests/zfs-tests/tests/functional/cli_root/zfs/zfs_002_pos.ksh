@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -48,29 +39,23 @@ function cleanup
 {
 	unset ZFS_ABORT
 
-	if [[ -d $corepath ]]; then
-		rm -rf $corepath
-	fi
+	log_must pop_coredump_pattern "$coresavepath"
+
 	for ds in $fs1 $fs $ctr; do
-		if datasetexists $ds; then
-			log_must zfs destroy -rRf $ds
-		fi
+		datasetexists $ds && destroy_dataset $ds -rRf
 	done
 }
 
-log_assert "With ZFS_ABORT set, all zfs commands can abort and generate a " \
-    "core file."
+log_assert "With ZFS_ABORT set, all zfs commands can abort and generate a core file."
 log_onexit cleanup
 
-#preparation work for testing
-corepath=$TESTDIR/core
-if [[ -d $corepath ]]; then
-	rm -rf $corepath
-fi
-log_must mkdir $corepath
-
 ctr=$TESTPOOL/$TESTCTR
-log_must zfs create $ctr
+log_must zfs create -p $ctr
+
+# Preparation work for testing
+corepath=/$ctr
+corefile=$corepath/core.zfs
+coresavepath=$corepath/save
 
 fs=$ctr/$TESTFS
 fs1=$ctr/$TESTFS1
@@ -89,25 +74,12 @@ typeset badparams=("" "create" "destroy" "snapshot" "rollback" "clone" \
     "promote" "rename" "list -*" "set" "get -*" "inherit" "mount -A" \
     "unmount" "share" "unshare" "send" "receive")
 
-if is_linux; then
-	ulimit -c unlimited
-	echo "$corepath/core.zfs" >/proc/sys/kernel/core_pattern
-	echo 0 >/proc/sys/kernel/core_uses_pid
-else
-	log_must coreadm -p ${corepath}/core.%f
-fi
-
+log_must eval "push_coredump_pattern \"$corepath\" > \"$coresavepath\""
 log_must export ZFS_ABORT=yes
 
 for subcmd in "${cmds[@]}" "${badparams[@]}"; do
-	zfs $subcmd >/dev/null 2>&1 && log_fail "$subcmd passed incorrectly."
-	corefile=${corepath}/core.zfs
-	if [[ ! -e $corefile ]]; then
-		log_fail "zfs $subcmd cannot generate core file with " \
-		    "ZFS_ABORT set."
-	fi
-	log_must rm -f $corefile
+	log_mustnot eval "zfs $subcmd"
+	log_must rm "$corefile"
 done
 
-log_pass "With ZFS_ABORT set, zfs command can abort and generate core file " \
-    "as expected."
+log_pass "With ZFS_ABORT set, zfs command can abort and generate core file as expected."

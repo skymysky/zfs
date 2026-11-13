@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -42,25 +33,24 @@
 #
 # STRATEGY:
 # 1. Import pools of all versions
-# 2. Setup a test enviorment over the old pools.
+# 2. Setup a test environment over the old pools.
 # 3. Verify the commands related to 'zfs upgrade' succeed as expected.
 #
 
 verify_runnable "global"
-
-https://github.com/zfsonlinux/zfs/issues/6112
-log_unsupported "Known issue #6112"
 
 function cleanup
 {
 	destroy_upgraded_pool $config
 }
 
+POOL_CONFIGS="1raidz 1mirror 2raidz 2mirror 3raidz 3mirror"
+
 log_assert "Import pools of all versions - 'zfs upgrade' on each pool works"
 log_onexit cleanup
 
 # $CONFIGS gets set in the .cfg script
-for config in $CONFIGS; do
+for config in $POOL_CONFIGS; do
 	typeset -n pool_name=ZPOOL_VERSION_${config}_NAME
 
 	create_old_pool $config

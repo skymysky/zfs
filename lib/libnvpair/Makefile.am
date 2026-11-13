@@ -1,31 +1,36 @@
-include $(top_srcdir)/config/Rules.am
+# SPDX-License-Identifier: CDDL-1.0
+libnvpair_la_CFLAGS  = $(AM_CFLAGS) $(KERNEL_CFLAGS) $(LIBRARY_CFLAGS)
+libnvpair_la_CFLAGS += $(LIBTIRPC_CFLAGS)
+libnvpair_la_CFLAGS += -fvisibility=hidden
 
-VPATH = \
-	$(top_srcdir)/module/nvpair \
-	$(top_srcdir)/lib/libnvpair
+# wchar_t is undefined-signedness, but we compare to >=0; this warns with unsigned wchar_t
+%D%/libnvpair_la-libnvpair_json.$(OBJEXT) : CFLAGS += -Wno-type-limits
+%D%/libnvpair_la-libnvpair_json.l$(OBJEXT): CFLAGS += -Wno-type-limits
 
-AM_CFLAGS += $(DEBUG_STACKFLAGS) $(FRAME_LARGER_THAN) $(LIBTIRPC_CFLAGS)
+lib_LTLIBRARIES += libnvpair.la
+CPPCHECKTARGETS += libnvpair.la
 
-DEFAULT_INCLUDES += \
-	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/lib/libspl/include
-
-lib_LTLIBRARIES = libnvpair.la
-
-USER_C = \
-	libnvpair.c \
-	nvpair_alloc_system.c
-
-KERNEL_C = \
-	nvpair_alloc_fixed.c \
-	nvpair.c \
-	fnvpair.c
+dist_libnvpair_la_SOURCES = \
+	%D%/libnvpair.c \
+	%D%/libnvpair_json.c \
+	%D%/nvpair_alloc_system.c
 
 nodist_libnvpair_la_SOURCES = \
-	$(USER_C) \
-	$(KERNEL_C)
+	module/nvpair/nvpair_alloc_fixed.c \
+	module/nvpair/nvpair.c \
+	module/nvpair/fnvpair.c
 
-libnvpair_la_LIBADD = $(LIBTIRPC)
-libnvpair_la_LDFLAGS = -version-info 1:1:0
+libnvpair_la_LIBADD = \
+	libspl.la
 
-EXTRA_DIST = $(USER_C)
+libnvpair_la_LIBADD += $(LIBTIRPC_LIBS)
+
+libnvpair_la_LDFLAGS =
+
+if !ASAN_ENABLED
+libnvpair_la_LDFLAGS += -Wl,-z,defs
+endif
+
+libnvpair_la_LDFLAGS += -version-info 4:0:1
+
+dist_noinst_DATA += %D%/libnvpair.abi %D%/libnvpair.suppr

@@ -1,73 +1,49 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 
 /*
  * Copyright (C) 2015 STRATO AG.
  */
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+#include <err.h>
 #include <fcntl.h>
 #include <libzfs.h>
 #include <sys/resource.h>
-#include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 /*
  * Check if libzfs works with more than 255 held file handles.
  */
-/* ARGSUSED */
 int
-main(int argc, char **argv)
+main(void)
 {
-	int i;
-	struct rlimit limit;
-	libzfs_handle_t *h;
+	struct rlimit limit = {
+		.rlim_cur = 64 * 1024,
+		.rlim_max = 64 * 1024,
+	};
+	if (setrlimit(RLIMIT_NOFILE, &limit) != 0)
+		err(1, "setrlimit()");
 
-	limit.rlim_cur = 65535;
-	limit.rlim_max = 65535;
+	int fd = open("/dev/null", O_RDONLY);
+	if (fd == -1)
+			err(1, "open()");
+	for (int i = 0; i < limit.rlim_cur / 2; ++i)
+		if (dup(fd) == -1)
+			err(1, "dup()");
 
-	if (setrlimit(RLIMIT_NOFILE, &limit) != 0) {
-		(void) printf("many_fds: setrlimit() failed with errno=%d\n",
-		    errno);
-		exit(1);
-	}
+	libzfs_handle_t *h = libzfs_init();
+	if (h == NULL)
+		err(1, "libzfs_init()");
 
-	for (i = 0; i < 255; ++i) {
-		int fd = open("/dev/null", O_RDONLY);
-		if (fd == -1) {
-			(void) printf("open failed with errno=%d\n", errno);
-			return (1);
-		}
-	}
-
-	h = libzfs_init();
-
-	if (h != NULL) {
-		libzfs_fini(h);
-		return (0);
-	} else {
-		(void) printf("many_fds: libzfs_init() failed with errno=%d\n",
-		    errno);
-		return (1);
-	}
+	libzfs_fini(h);
 }

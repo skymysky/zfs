@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (C) 2016 Romain Dolbeau. All rights reserved.
@@ -25,12 +16,15 @@
 
 #include <sys/isa_defs.h>
 
-#if defined(__x86_64) && defined(HAVE_AVX512F)
+#if defined(__x86_64) && HAVE_SIMD(AVX512F)
 
 #include <sys/types.h>
-#include <linux/simd_x86.h>
+#include <sys/simd.h>
+#include <sys/debug.h>
 
+#ifdef __linux__
 #define	__asm __asm__ __volatile__
+#endif
 
 #define	_REG_CNT(_0, _1, _2, _3, _4, _5, _6, _7, N, ...) N
 #define	REG_CNT(r...) _REG_CNT(r, 8, 7, 6, 5, 4, 3, 2, 1)
@@ -194,6 +188,8 @@ typedef struct v {
 		    "vpternlogd $0x6c,%zmm29, %zmm26, %" VR0(r) "\n"	\
 		    "vpternlogd $0x6c,%zmm29, %zmm25, %" VR1(r));	\
 		break;							\
+	default:							\
+		VERIFY(0);						\
 	}								\
 }
 
@@ -370,12 +366,15 @@ gf_x2_mul_fns[256] = {
 		COPY(R_23(r), _mul_x2_in);				\
 		gf_x2_mul_fns[c]();					\
 		COPY(_mul_x2_acc, R_23(r));				\
+		break;							\
+	default:							\
+		VERIFY(0);						\
 	}								\
 }
 
 
-#define	raidz_math_begin()	kfpu_begin()
-#define	raidz_math_end()	kfpu_end()
+#define	raidz_math_begin(ctx)	kfpu_begin(ctx)
+#define	raidz_math_end(ctx)	kfpu_end(ctx)
 
 
 #define	SYN_STRIDE		4
@@ -470,9 +469,8 @@ DEFINE_REC_METHODS(avx512f);
 static boolean_t
 raidz_will_avx512f_work(void)
 {
-	return (zfs_avx_available() &&
-	    zfs_avx2_available() &&
-	    zfs_avx512f_available());
+	return (kfpu_allowed() && zfs_avx_available() &&
+	    zfs_avx2_available() && zfs_avx512f_available());
 }
 
 const raidz_impl_ops_t vdev_raidz_avx512f_impl = {
@@ -484,4 +482,4 @@ const raidz_impl_ops_t vdev_raidz_avx512f_impl = {
 	.name = "avx512f"
 };
 
-#endif /* defined(__x86_64) && defined(HAVE_AVX512F) */
+#endif /* defined(__x86_64) && HAVE_SIMD(AVX512F) */

@@ -1,22 +1,13 @@
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -29,55 +20,6 @@
 #
 
 . $STF_SUITE/tests/functional/mv_files/mv_files.cfg
-
-#
-# Determine whether this version of the ksh being
-# executed has a bug where the limit of background
-# processes of 25.
-#
-function check_bg_procs_limit_num
-{
-echo "#!/bin/ksh" > /var/tmp/exitsZero.ksh
-echo  "exit 0" >> /var/tmp/exitsZero.ksh
-chmod 777 /var/tmp/exitsZero.ksh
-
-cat <<EOF > /var/tmp/testbackgprocs.ksh
-#!/bin/ksh
-#
-# exitsZero.ksh is a one line script
-# that exit with status of "0"
-#
-
-PIDS=""
-typeset -i i=1
-while [ \$i -le 50 ]
-do
-	/var/tmp/exitsZero.ksh &
-        PIDS="\$PIDS \$!"
-        (( i = i + 1 ))
-done
-
-sleep 1
-
-for pid in \$PIDS
-do
-	wait \$pid
-        (( \$? == 127 )) && exit 1
-done
-exit 0
-EOF
-
-ksh /var/tmp/testbackgprocs.ksh
-if [[ $? -eq 1 ]]; then
-#
-# Current ksh being executed has a limit
-# of 25 background processes.
-#
-	return 1
-else
-        return 0
-fi
-}
 
 function init_setup
 {
@@ -108,16 +50,6 @@ function init_setup
 
 }
 
-function wait_pid
-{
-	for pid in $1
-	do
-		ps -e | grep $pid >/dev/null 2>&1
-		(( $? == 0 )) && wait $pid
-        done
-}
-
-
 #
 # Generate given number files in a
 # directory of zfs file system
@@ -141,18 +73,17 @@ function generate_files
                 cp /etc/passwd $1/file_$count \
                          > /dev/null 2>&1 &
 
-                PIDS="$PIDS $!"
+                (( proc_num = proc_num + 1 ))
 
-                proc_num=`echo $PIDS | wc -w`
                 if (( proc_num >= GANGPIDS )); then
-                        wait_pid "$PIDS"
+                        wait
                         proc_num=0
-                        PIDS=""
                 fi
 
                (( count = count + 1 ))
         done
 
+        wait
 }
 
 #
@@ -163,9 +94,7 @@ function generate_files
 #
 function mv_files
 {
-
-        find $1 -type f -print | xargs -i \
-                mv {} $2 > /dev/null 2>&1
+        find $1 -type f -exec mv {} $2 \; > /dev/null 2>&1
 }
 
 #
@@ -176,10 +105,7 @@ function mv_files
 #
 function count_files
 {
-        typeset -i file_num
-        file_num=`find $1  -type f -print | \
-                wc -l`
-        (( file_num != $2 )) && \
+        (( $(find $1 -type f -print | wc -l) != $2 )) && \
                 log_fail "The file number of target directory"\
                         "$2 is not equal to that of the source "\
                         "directory $1"

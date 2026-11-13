@@ -1,26 +1,21 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ */
+
+/*
+ *  Copyright (c) 2020 by Delphix. All rights reserved.
  */
 
 #ifndef	_SYS_FM_FS_ZFS_H
@@ -37,6 +32,9 @@ extern "C" {
 #define	FM_EREPORT_ZFS_IO			"io"
 #define	FM_EREPORT_ZFS_DATA			"data"
 #define	FM_EREPORT_ZFS_DELAY			"delay"
+#define	FM_EREPORT_ZFS_DEADMAN			"deadman"
+#define	FM_EREPORT_ZFS_DIO_VERIFY_WR		"dio_verify_wr"
+#define	FM_EREPORT_ZFS_DIO_VERIFY_RD		"dio_verify_rd"
 #define	FM_EREPORT_ZFS_POOL			"zpool"
 #define	FM_EREPORT_ZFS_DEVICE_UNKNOWN		"vdev.unknown"
 #define	FM_EREPORT_ZFS_DEVICE_OPEN_FAILED	"vdev.open_failed"
@@ -50,6 +48,7 @@ extern "C" {
 #define	FM_EREPORT_ZFS_PROBE_FAILURE		"probe_failure"
 #define	FM_EREPORT_ZFS_LOG_REPLAY		"log_replay"
 #define	FM_EREPORT_ZFS_CONFIG_CACHE_WRITE	"config_cache_write"
+#define	FM_EREPORT_ZFS_SITOUT			"sitout"
 
 #define	FM_EREPORT_PAYLOAD_ZFS_POOL		"pool"
 #define	FM_EREPORT_PAYLOAD_ZFS_POOL_FAILMODE	"pool_failmode"
@@ -73,6 +72,14 @@ extern "C" {
 #define	FM_EREPORT_PAYLOAD_ZFS_VDEV_READ_ERRORS	"vdev_read_errors"
 #define	FM_EREPORT_PAYLOAD_ZFS_VDEV_WRITE_ERRORS "vdev_write_errors"
 #define	FM_EREPORT_PAYLOAD_ZFS_VDEV_CKSUM_ERRORS "vdev_cksum_errors"
+#define	FM_EREPORT_PAYLOAD_ZFS_VDEV_CKSUM_N	"vdev_cksum_n"
+#define	FM_EREPORT_PAYLOAD_ZFS_VDEV_CKSUM_T	"vdev_cksum_t"
+#define	FM_EREPORT_PAYLOAD_ZFS_VDEV_IO_N	"vdev_io_n"
+#define	FM_EREPORT_PAYLOAD_ZFS_VDEV_IO_T	"vdev_io_t"
+#define	FM_EREPORT_PAYLOAD_ZFS_VDEV_SLOW_IO_N	"vdev_slow_io_n"
+#define	FM_EREPORT_PAYLOAD_ZFS_VDEV_SLOW_IO_T	"vdev_slow_io_t"
+#define	FM_EREPORT_PAYLOAD_ZFS_VDEV_DIO_VERIFY_ERRORS "dio_verify_errors"
+#define	FM_EREPORT_PAYLOAD_ZFS_VDEV_DELAYS	"vdev_delays"
 #define	FM_EREPORT_PAYLOAD_ZFS_PARENT_GUID	"parent_guid"
 #define	FM_EREPORT_PAYLOAD_ZFS_PARENT_TYPE	"parent_type"
 #define	FM_EREPORT_PAYLOAD_ZFS_PARENT_PATH	"parent_path"
@@ -86,13 +93,13 @@ extern "C" {
 #define	FM_EREPORT_PAYLOAD_ZFS_ZIO_SIZE		"zio_size"
 #define	FM_EREPORT_PAYLOAD_ZFS_ZIO_FLAGS	"zio_flags"
 #define	FM_EREPORT_PAYLOAD_ZFS_ZIO_STAGE	"zio_stage"
+#define	FM_EREPORT_PAYLOAD_ZFS_ZIO_PRIORITY	"zio_priority"
+#define	FM_EREPORT_PAYLOAD_ZFS_ZIO_TYPE		"zio_type"
 #define	FM_EREPORT_PAYLOAD_ZFS_ZIO_PIPELINE	"zio_pipeline"
 #define	FM_EREPORT_PAYLOAD_ZFS_ZIO_DELAY	"zio_delay"
 #define	FM_EREPORT_PAYLOAD_ZFS_ZIO_TIMESTAMP	"zio_timestamp"
 #define	FM_EREPORT_PAYLOAD_ZFS_ZIO_DELTA	"zio_delta"
 #define	FM_EREPORT_PAYLOAD_ZFS_PREV_STATE	"prev_state"
-#define	FM_EREPORT_PAYLOAD_ZFS_CKSUM_EXPECTED	"cksum_expected"
-#define	FM_EREPORT_PAYLOAD_ZFS_CKSUM_ACTUAL	"cksum_actual"
 #define	FM_EREPORT_PAYLOAD_ZFS_CKSUM_ALGO	"cksum_algorithm"
 #define	FM_EREPORT_PAYLOAD_ZFS_CKSUM_BYTESWAP	"cksum_byteswap"
 #define	FM_EREPORT_PAYLOAD_ZFS_BAD_OFFSET_RANGES "bad_ranges"
@@ -101,8 +108,10 @@ extern "C" {
 #define	FM_EREPORT_PAYLOAD_ZFS_BAD_RANGE_CLEARS	"bad_range_clears"
 #define	FM_EREPORT_PAYLOAD_ZFS_BAD_SET_BITS	"bad_set_bits"
 #define	FM_EREPORT_PAYLOAD_ZFS_BAD_CLEARED_BITS	"bad_cleared_bits"
-#define	FM_EREPORT_PAYLOAD_ZFS_BAD_SET_HISTOGRAM "bad_set_histogram"
-#define	FM_EREPORT_PAYLOAD_ZFS_BAD_CLEARED_HISTOGRAM "bad_cleared_histogram"
+#define	FM_EREPORT_PAYLOAD_ZFS_SNAPSHOT_NAME	"snapshot_name"
+#define	FM_EREPORT_PAYLOAD_ZFS_DEVICE_NAME	"device_name"
+#define	FM_EREPORT_PAYLOAD_ZFS_RAW_DEVICE_NAME	"raw_name"
+#define	FM_EREPORT_PAYLOAD_ZFS_VOLUME	"volume"
 
 #define	FM_EREPORT_FAILMODE_WAIT		"wait"
 #define	FM_EREPORT_FAILMODE_CONTINUE		"continue"
@@ -111,6 +120,11 @@ extern "C" {
 #define	FM_RESOURCE_REMOVED			"removed"
 #define	FM_RESOURCE_AUTOREPLACE			"autoreplace"
 #define	FM_RESOURCE_STATECHANGE			"statechange"
+
+#define	FM_RESOURCE_ZFS_SNAPSHOT_MOUNT		"snapshot_mount"
+#define	FM_RESOURCE_ZFS_SNAPSHOT_UNMOUNT		"snapshot_unmount"
+#define	FM_RESOURCE_ZVOL_CREATE_SYMLINK		"zvol_create"
+#define	FM_RESOURCE_ZVOL_REMOVE_SYMLINK		"zvol_remove"
 
 #ifdef	__cplusplus
 }

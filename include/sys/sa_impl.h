@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
@@ -28,7 +19,7 @@
 #define	_SYS_SA_IMPL_H
 
 #include <sys/dmu.h>
-#include <sys/refcount.h>
+#include <sys/zfs_refcount.h>
 #include <sys/list.h>
 
 /*
@@ -110,7 +101,7 @@ typedef struct sa_idx_tab {
 	list_node_t	sa_next;
 	sa_lot_t	*sa_layout;
 	uint16_t	*sa_variable_lengths;
-	refcount_t	sa_refcount;
+	zfs_refcount_t	sa_refcount;
 	uint32_t	*sa_idx_tab;	/* array of offsets */
 } sa_idx_tab_t;
 
@@ -167,8 +158,8 @@ typedef struct sa_hdr_phys {
 	 * | hdrsz  |layout |
 	 * +--------+-------+
 	 *
-	 * Bits 0-10 are the layout number
-	 * Bits 11-16 are the size of the header.
+	 * Bits 0-9 (10 bits) are the layout number (0-1023)
+	 * Bits 10-15 (6 bits) are the size of the header (0-63)
 	 * The hdrsize is the number * 8
 	 *
 	 * For example.
@@ -272,7 +263,6 @@ int sa_add_impl(sa_handle_t *, sa_attr_type_t,
     uint32_t, sa_data_locator_t, void *, dmu_tx_t *);
 
 void sa_register_update_callback_locked(objset_t *, sa_update_cb_t *);
-int sa_size_locked(sa_handle_t *, sa_attr_type_t, int *);
 
 void sa_default_locator(void **, uint32_t *, uint32_t, boolean_t, void *);
 int sa_attr_size(sa_os_t *, sa_idx_tab_t *, sa_attr_type_t,

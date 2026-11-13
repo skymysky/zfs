@@ -1,23 +1,14 @@
 #!/bin/ksh
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -50,9 +41,8 @@ function cleanup
 	typeset val
 
 	for val in 1 2 3; do
-		if datasetexists $TESTPOOL/fs_$val; then
-			log_must zfs destroy $TESTPOOL/fs_$val
-		fi
+		datasetexists $TESTPOOL/fs_$val && \
+			destroy_dataset $TESTPOOL/fs_$val
 	done
 }
 
@@ -60,7 +50,7 @@ log_assert "Verify that the space used by multiple copies is charged correctly."
 log_onexit cleanup
 
 for val in 1 2 3; do
-	log_must zfs create -o copies=$val $TESTPOOL/fs_$val
+	log_must zfs create -o compression=off -o copies=$val $TESTPOOL/fs_$val
 
 	log_must mkfile $FILESIZE /$TESTPOOL/fs_$val/$FILE
 done
@@ -68,7 +58,7 @@ done
 #
 # Sync up the filesystem
 #
-sync
+sync_all_pools
 
 #
 # Verify 'zfs list' can correctly list the space charged
@@ -76,12 +66,12 @@ sync
 log_note "Verify 'zfs list' can correctly list the space charged."
 fsize=${FILESIZE%[m|M]}
 for val in 1 2 3; do
-	used=$(get_used_prop $TESTPOOL/fs_$val)
+	used=$(get_prop used $TESTPOOL/fs_$val)
 	check_used $used $val
 done
 
 log_note "Verify 'ls -s' can correctly list the space charged."
-if is_linux; then
+if is_linux || is_freebsd; then
 	blksize=1024
 else
 	blksize=512
@@ -92,18 +82,25 @@ for val in 1 2 3; do
 	check_used $used $val
 done
 
-log_note "Verify df(1M) can corectly display the space charged."
+log_note "Verify df(1) can correctly display the space charged."
 for val in 1 2 3; do
-	used=`df -F zfs -k /$TESTPOOL/fs_$val/$FILE | grep $TESTPOOL/fs_$val \
-		| awk '{print $3}'`
-	(( used = used * 1024 )) # kb -> bytes
+	if is_freebsd; then
+		used=`df -m /$TESTPOOL/fs_$val | awk -v pa=$TESTPOOL/fs_$val -v fs=fs_$val '$0 ~ pa && $4 ~ fs {print $3}'`
+	else
+		used=`df -F zfs -k /$TESTPOOL/fs_$val/$FILE | awk -v pa=$TESTPOOL/fs_$val '$0 ~ pa {print $3}'`
+		(( used = used * 1024 )) # kb -> bytes
+	fi
 	check_used $used $val
 done
 
 log_note "Verify du(1) can correctly display the space charged."
 for val in 1 2 3; do
-	used=`du -k /$TESTPOOL/fs_$val/$FILE | awk '{print $1}'`
-	(( used = used * 1024 )) # kb -> bytes
+	if is_freebsd; then
+		used=`du -h /$TESTPOOL/fs_$val/$FILE | awk '{print $1}'`
+	else
+		used=`du -k /$TESTPOOL/fs_$val/$FILE | awk '{print $1}'`
+		(( used = used * 1024 )) # kb -> bytes
+	fi
 	check_used $used $val
 done
 

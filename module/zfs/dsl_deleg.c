@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
@@ -101,7 +92,7 @@ dsl_deleg_can_allow(char *ddname, nvlist_t *nvp, cred_t *cr)
 		nvlist_t *perms;
 		nvpair_t *permpair = NULL;
 
-		VERIFY(nvpair_value_nvlist(whopair, &perms) == 0);
+		VERIFY0(nvpair_value_nvlist(whopair, &perms));
 
 		while ((permpair = nvlist_next_nvpair(perms, permpair))) {
 			const char *perm = nvpair_name(permpair);
@@ -188,8 +179,7 @@ dsl_deleg_set_sync(void *arg, dmu_tx_t *tx)
 			const char *perm = nvpair_name(permpair);
 			uint64_t n = 0;
 
-			VERIFY(zap_update(mos, jumpobj,
-			    perm, 8, 1, &n, tx) == 0);
+			VERIFY0(zap_update(mos, jumpobj, perm, 8, 1, &n, tx));
 			spa_history_log_internal_dd(dd, "permission update", tx,
 			    "%s %s", whokey, perm);
 		}
@@ -224,7 +214,7 @@ dsl_deleg_unset_sync(void *arg, dmu_tx_t *tx)
 			if (zap_lookup(mos, zapobj, whokey, 8,
 			    1, &jumpobj) == 0) {
 				(void) zap_remove(mos, zapobj, whokey, tx);
-				VERIFY(0 == zap_destroy(mos, jumpobj, tx));
+				VERIFY0(zap_destroy(mos, jumpobj, tx));
 			}
 			spa_history_log_internal_dd(dd, "permission who remove",
 			    tx, "%s", whokey);
@@ -242,7 +232,7 @@ dsl_deleg_unset_sync(void *arg, dmu_tx_t *tx)
 			if (zap_count(mos, jumpobj, &n) == 0 && n == 0) {
 				(void) zap_remove(mos, zapobj,
 				    whokey, tx);
-				VERIFY(0 == zap_destroy(mos,
+				VERIFY0(zap_destroy(mos,
 				    jumpobj, tx));
 			}
 			spa_history_log_internal_dd(dd, "permission remove", tx,
@@ -327,11 +317,11 @@ dsl_deleg_get(const char *ddname, nvlist_t **nvp)
 	mos = dp->dp_meta_objset;
 
 	zc = kmem_alloc(sizeof (zap_cursor_t), KM_SLEEP);
-	za = kmem_alloc(sizeof (zap_attribute_t), KM_SLEEP);
+	za = zap_attribute_alloc();
 	basezc = kmem_alloc(sizeof (zap_cursor_t), KM_SLEEP);
-	baseza = kmem_alloc(sizeof (zap_attribute_t), KM_SLEEP);
+	baseza = zap_attribute_alloc();
 	source = kmem_alloc(ZFS_MAX_DATASET_NAME_LEN, KM_SLEEP);
-	VERIFY(nvlist_alloc(nvp, NV_UNIQUE_NAME, KM_SLEEP) == 0);
+	VERIFY0(nvlist_alloc(nvp, NV_UNIQUE_NAME, KM_SLEEP));
 
 	for (dd = startdd; dd != NULL; dd = dd->dd_parent) {
 		nvlist_t *sp_nvp;
@@ -371,9 +361,9 @@ dsl_deleg_get(const char *ddname, nvlist_t **nvp)
 	}
 
 	kmem_free(source, ZFS_MAX_DATASET_NAME_LEN);
-	kmem_free(baseza, sizeof (zap_attribute_t));
+	zap_attribute_free(baseza);
 	kmem_free(basezc, sizeof (zap_cursor_t));
-	kmem_free(za, sizeof (zap_attribute_t));
+	zap_attribute_free(za);
 	kmem_free(zc, sizeof (zap_cursor_t));
 
 	dsl_dir_rele(startdd, FTAG);
@@ -395,11 +385,7 @@ perm_set_compare(const void *arg1, const void *arg2)
 {
 	const perm_set_t *node1 = (const perm_set_t *)arg1;
 	const perm_set_t *node2 = (const perm_set_t *)arg2;
-	int val;
-
-	val = strcmp(node1->p_setname, node2->p_setname);
-
-	return (AVL_ISIGN(val));
+	return (TREE_ISIGN(strcmp(node1->p_setname, node2->p_setname)));
 }
 
 /*
@@ -482,7 +468,7 @@ dsl_load_sets(objset_t *mos, uint64_t zapobj,
     char type, char checkflag, void *valp, avl_tree_t *avl)
 {
 	zap_cursor_t zc;
-	zap_attribute_t za;
+	zap_attribute_t *za;
 	perm_set_t *permnode;
 	avl_index_t idx;
 	uint64_t jumpobj;
@@ -495,11 +481,12 @@ dsl_load_sets(objset_t *mos, uint64_t zapobj,
 	if (error != 0)
 		return (error);
 
+	za = zap_attribute_alloc();
 	for (zap_cursor_init(&zc, mos, jumpobj);
-	    zap_cursor_retrieve(&zc, &za) == 0;
+	    zap_cursor_retrieve(&zc, za) == 0;
 	    zap_cursor_advance(&zc)) {
 		permnode = kmem_alloc(sizeof (perm_set_t), KM_SLEEP);
-		(void) strlcpy(permnode->p_setname, za.za_name,
+		(void) strlcpy(permnode->p_setname, za->za_name,
 		    sizeof (permnode->p_setname));
 		permnode->p_matched = B_FALSE;
 
@@ -510,6 +497,7 @@ dsl_load_sets(objset_t *mos, uint64_t zapobj,
 		}
 	}
 	zap_cursor_fini(&zc);
+	zap_attribute_free(za);
 	return (0);
 }
 
@@ -593,13 +581,16 @@ dsl_deleg_access_impl(dsl_dataset_t *ds, const char *perm, cred_t *cr)
 		 * the zoned property is set
 		 */
 		if (!INGLOBALZONE(curproc)) {
-			uint64_t zoned;
+			uint64_t zoned = 0;
+			uint64_t zoned_uid_val = 0;
 
-			if (dsl_prop_get_dd(dd,
+			(void) dsl_prop_get_dd(dd,
 			    zfs_prop_to_name(ZFS_PROP_ZONED),
-			    8, 1, &zoned, NULL, B_FALSE) != 0)
-				break;
-			if (!zoned)
+			    8, 1, &zoned, NULL, B_FALSE);
+			(void) dsl_prop_get_dd(dd,
+			    zfs_prop_to_name(ZFS_PROP_ZONED_UID),
+			    8, 1, &zoned_uid_val, NULL, B_FALSE);
+			if (!zoned && zoned_uid_val == 0)
 				break;
 		}
 		zapobj = dsl_dir_phys(dd)->dd_deleg_zapobj;
@@ -683,7 +674,7 @@ copy_create_perms(dsl_dir_t *dd, uint64_t pzapobj,
 	uint64_t jumpobj, pjumpobj;
 	uint64_t zapobj = dsl_dir_phys(dd)->dd_deleg_zapobj;
 	zap_cursor_t zc;
-	zap_attribute_t za;
+	zap_attribute_t *za;
 	char whokey[ZFS_MAX_DELEG_NAME];
 
 	zfs_deleg_whokey(whokey,
@@ -703,19 +694,20 @@ copy_create_perms(dsl_dir_t *dd, uint64_t pzapobj,
 	    ZFS_DELEG_LOCAL, &uid);
 	if (zap_lookup(mos, zapobj, whokey, 8, 1, &jumpobj) == ENOENT) {
 		jumpobj = zap_create(mos, DMU_OT_DSL_PERMS, DMU_OT_NONE, 0, tx);
-		VERIFY(zap_add(mos, zapobj, whokey, 8, 1, &jumpobj, tx) == 0);
+		VERIFY0(zap_add(mos, zapobj, whokey, 8, 1, &jumpobj, tx));
 	}
 
+	za = zap_attribute_alloc();
 	for (zap_cursor_init(&zc, mos, pjumpobj);
-	    zap_cursor_retrieve(&zc, &za) == 0;
+	    zap_cursor_retrieve(&zc, za) == 0;
 	    zap_cursor_advance(&zc)) {
 		uint64_t zero = 0;
-		ASSERT(za.za_integer_length == 8 && za.za_num_integers == 1);
+		ASSERT(za->za_integer_length == 8 && za->za_num_integers == 1);
 
-		VERIFY(zap_update(mos, jumpobj, za.za_name,
-		    8, 1, &zero, tx) == 0);
+		VERIFY0(zap_update(mos, jumpobj, za->za_name, 8, 1, &zero, tx));
 	}
 	zap_cursor_fini(&zc);
+	zap_attribute_free(za);
 }
 
 /*
@@ -746,19 +738,21 @@ int
 dsl_deleg_destroy(objset_t *mos, uint64_t zapobj, dmu_tx_t *tx)
 {
 	zap_cursor_t zc;
-	zap_attribute_t za;
+	zap_attribute_t *za;
 
 	if (zapobj == 0)
 		return (0);
 
+	za = zap_attribute_alloc();
 	for (zap_cursor_init(&zc, mos, zapobj);
-	    zap_cursor_retrieve(&zc, &za) == 0;
+	    zap_cursor_retrieve(&zc, za) == 0;
 	    zap_cursor_advance(&zc)) {
-		ASSERT(za.za_integer_length == 8 && za.za_num_integers == 1);
-		VERIFY(0 == zap_destroy(mos, za.za_first_integer, tx));
+		ASSERT(za->za_integer_length == 8 && za->za_num_integers == 1);
+		VERIFY0(zap_destroy(mos, za->za_first_integer, tx));
 	}
 	zap_cursor_fini(&zc);
-	VERIFY(0 == zap_destroy(mos, zapobj, tx));
+	VERIFY0(zap_destroy(mos, zapobj, tx));
+	zap_attribute_free(za);
 	return (0);
 }
 
@@ -768,7 +762,5 @@ dsl_delegation_on(objset_t *os)
 	return (!!spa_delegation(os->os_spa));
 }
 
-#if defined(_KERNEL) && defined(HAVE_SPL)
 EXPORT_SYMBOL(dsl_deleg_get);
 EXPORT_SYMBOL(dsl_deleg_set);
-#endif

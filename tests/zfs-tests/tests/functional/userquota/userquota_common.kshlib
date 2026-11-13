@@ -1,22 +1,13 @@
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -43,12 +34,18 @@ function cleanup_quota
 		log_must zfs set userobjquota@$QUSER2=none $QFS
 		log_must zfs set groupquota@$QGROUP=none $QFS
 		log_must zfs set groupobjquota@$QGROUP=none $QFS
+		log_must zfs set defaultuserquota=none $QFS
+		log_must zfs set defaultuserobjquota=none $QFS
+		log_must zfs set defaultgroupquota=none $QFS
+		log_must zfs set defaultgroupobjquota=none $QFS
 		recovery_writable $QFS
 	fi
 
 	[[ -f $QFILE ]] && log_must rm -f $QFILE
 	[[ -f $OFILE ]] && log_must rm -f $OFILE
-	sync
+	[[ -f $QFILE2 ]] && log_must rm -f $QFILE2
+	[[ -f $OFILE2 ]] && log_must rm -f $OFILE2
+	sync_all_pools
 
 	return 0
 }
@@ -100,24 +97,4 @@ function check_quota
 	if (($value != $expected)); then
 		return 1
 	fi
-}
-
-#
-# zfs get prop, which return raw value not -p value.
-#
-function get_value # property dataset
-{
-        typeset prop_val
-        typeset prop=$1
-        typeset dataset=$2
-
-        prop_val=$(zfs get -H -p -o value $prop $dataset 2>/dev/null)
-        if [[ $? -ne 0 ]]; then
-                log_note "Unable to get $prop property for dataset " \
-                "$dataset"
-                return 1
-        fi
-
-        echo $prop_val
-        return 0
 }

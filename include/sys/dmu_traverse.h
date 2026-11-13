@@ -1,26 +1,17 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012, 2014 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2018 by Delphix. All rights reserved.
  */
 
 #ifndef	_SYS_DMU_TRAVERSE_H
@@ -58,6 +49,13 @@ typedef int (blkptr_cb_t)(spa_t *spa, zilog_t *zilog, const blkptr_t *bp,
  */
 #define	TRAVERSE_NO_DECRYPT		(1<<5)
 
+/*
+ * Always use logical birth time for birth time comparisons.  This is useful
+ * for operations that care about user data changes rather than physical
+ * block rewrites (e.g., incremental replication).
+ */
+#define	TRAVERSE_LOGICAL		(1<<6)
+
 /* Special traverse error return value to indicate skipping of children */
 #define	TRAVERSE_VISIT_NO_CHILDREN	-1
 
@@ -70,6 +68,20 @@ int traverse_dataset_destroyed(spa_t *spa, blkptr_t *blkptr,
     blkptr_cb_t func, void *arg);
 int traverse_pool(spa_t *spa,
     uint64_t txg_start, int flags, blkptr_cb_t func, void *arg);
+
+/*
+ * Note that this calculation cannot overflow with the current maximum indirect
+ * block size (128k).  If that maximum is increased to 1M, however, this
+ * calculation can overflow, and handling would need to be added to ensure
+ * continued correctness.
+ */
+static inline uint64_t
+bp_span_in_blocks(uint8_t indblkshift, uint64_t level)
+{
+	unsigned int shift = level * (indblkshift - SPA_BLKPTRSHIFT);
+	ASSERT3U(shift, <, 64);
+	return (1ULL << shift);
+}
 
 #ifdef	__cplusplus
 }

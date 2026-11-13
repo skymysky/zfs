@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -42,14 +33,13 @@
 # 3. Verify that the remove failed.
 #
 
-typeset disk=${DISK}
-typeset vdev_devs="${disk}${SLICE_PREFIX}${SLICE0}"
-typeset mirror_devs="${disk}${SLICE_PREFIX}${SLICE0} ${disk}${SLICE_PREFIX}${SLICE1}"
+typeset vdev_devs="${DISK0}"
+typeset mirror_devs="${DISK0} ${DISK1}"
 typeset raidz_devs=${mirror_devs}
 typeset raidz1_devs=${mirror_devs}
-typeset raidz2_devs="${mirror_devs} ${disk}${SLICE_PREFIX}${SLICE3}"
-typeset spare_devs1="${disk}${SLICE_PREFIX}${SLICE0}"
-typeset spare_devs2="${disk}${SLICE_PREFIX}${SLICE1}"
+typeset raidz2_devs="${mirror_devs} ${DISK2}"
+typeset spare_devs1="${DISK0}"
+typeset spare_devs2="${DISK1}"
 
 function check_remove
 {

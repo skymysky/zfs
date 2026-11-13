@@ -1,6 +1,5 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
- *
  * This file and its contents are supplied under the terms of the
  * Common Development and Distribution License ("CDDL"), version 1.0.
  * You may only use this file in accordance with the terms of version
@@ -8,15 +7,14 @@
  *
  * A full copy of the text of the CDDL should have accompanied this
  * source.  A copy of the CDDL is also available via the Internet at
- * http://www.illumos.org/license/CDDL.
- *
- * CDDL HEADER END
+ * https://opensource.org/license/CDDL-1.0.
  */
 
 /*
  * Copyright (c) 2013, 2016 by Delphix. All rights reserved.
  */
 
+#include <sys/blkptr.h>
 #include <sys/zfs_context.h>
 #include <sys/zio.h>
 #include <sys/zio_compress.h>
@@ -57,7 +55,7 @@ encode_embedded_bp_compressed(blkptr_t *bp, void *data,
 	ASSERT3U(comp, >=, ZIO_COMPRESS_OFF);
 	ASSERT3U(comp, <, ZIO_COMPRESS_FUNCTIONS);
 
-	bzero(bp, sizeof (*bp));
+	memset(bp, 0, sizeof (*bp));
 	BP_SET_EMBEDDED(bp, B_TRUE);
 	BP_SET_COMPRESS(bp, comp);
 	BP_SET_BYTEORDER(bp, ZFS_HOST_BYTEORDER);
@@ -141,8 +139,13 @@ decode_embedded_bp(const blkptr_t *bp, void *buf, int buflen)
 	if (BP_GET_COMPRESS(bp) != ZIO_COMPRESS_OFF) {
 		uint8_t dstbuf[BPE_PAYLOAD_SIZE];
 		decode_embedded_bp_compressed(bp, dstbuf);
-		VERIFY0(zio_decompress_data_buf(BP_GET_COMPRESS(bp),
-		    dstbuf, buf, psize, buflen));
+		abd_t cabd, dabd;
+		abd_get_from_buf_struct(&cabd, dstbuf, psize);
+		abd_get_from_buf_struct(&dabd, buf, buflen);
+		VERIFY0(zio_decompress_data(BP_GET_COMPRESS(bp), &cabd,
+		    &dabd, psize, buflen, NULL));
+		abd_free(&dabd);
+		abd_free(&cabd);
 	} else {
 		ASSERT3U(lsize, ==, psize);
 		decode_embedded_bp_compressed(bp, buf);

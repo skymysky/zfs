@@ -1,48 +1,65 @@
-include $(top_srcdir)/config/Rules.am
+# SPDX-License-Identifier: CDDL-1.0
+include $(srcdir)/%D%/include/Makefile.am
 
-VPATH = \
-	$(top_srcdir)/lib/libspl \
-	$(top_srcdir)/lib/libspl/$(TARGET_ASM_DIR)
+libspl_assert_la_CFLAGS = $(AM_CFLAGS) $(LIBRARY_CFLAGS) $(LIBUNWIND_CFLAGS)
+libspl_la_CFLAGS        = $(libspl_assert_la_CFLAGS)
+if TARGET_CPU_I386
+libspl_la_CFLAGS        += $(NO_ATOMIC_ALIGNMENT)
+endif
 
-AM_CFLAGS += $(DEBUG_STACKFLAGS) $(FRAME_LARGER_THAN)
+noinst_LTLIBRARIES += libspl_assert.la libspl.la
+CPPCHECKTARGETS    += libspl_assert.la libspl.la
 
-SUBDIRS = include $(TARGET_ASM_DIR)
-DIST_SUBDIRS = include asm-generic asm-i386 asm-x86_64
+libspl_assert_la_SOURCES = \
+	%D%/assert.c \
+	%D%/backtrace.c
 
-DEFAULT_INCLUDES += \
-	-I$(top_srcdir)/lib/libspl/include
+libspl_la_SOURCES = \
+	%D%/libspl_impl.h \
+	%D%/condvar.c \
+	%D%/cred.c \
+	%D%/getexecname.c \
+	%D%/kmem.c \
+	%D%/kmem_cache.c \
+	%D%/kstat.c \
+	%D%/libspl.c \
+	%D%/list.c \
+	%D%/mkdirp.c \
+	%D%/mutex.c \
+	%D%/page.c \
+	%D%/procfs_list.c \
+	%D%/random.c \
+	%D%/rwlock.c \
+	%D%/sid.c \
+	%D%/strlcat.c \
+	%D%/strlcpy.c \
+	%D%/taskq.c \
+	%D%/thread.c \
+	%D%/timestamp.c \
+	%D%/tunables.c \
+	%D%/include/sys/list.h \
+	%D%/include/sys/list_impl.h
 
-AM_CCASFLAGS = \
-	$(CFLAGS)
+if BUILD_LINUX
+libspl_la_SOURCES += \
+	%D%/os/linux/getexecname.c \
+	%D%/os/linux/gethostid.c \
+	%D%/os/linux/mnttab.c \
+	%D%/os/linux/zone.c
+endif
 
-noinst_LTLIBRARIES = libspl.la
+if BUILD_FREEBSD
+libspl_la_SOURCES += \
+	%D%/os/freebsd/getexecname.c \
+	%D%/os/freebsd/gethostid.c \
+	%D%/os/freebsd/getextmntent.c \
+	%D%/os/freebsd/mnttab.c \
+	%D%/os/freebsd/zone.c
+endif
 
-USER_C = \
-	getexecname.c \
-	gethostid.c \
-	gethrtime.c \
-	gethrestime.c \
-	getmntany.c \
-	list.c \
-	mkdirp.c \
-	page.c \
-	strlcat.c \
-	strlcpy.c \
-	strnlen.c \
-	timestamp.c \
-	zone.c \
-	include/sys/list.h \
-	include/sys/list_impl.h
+libspl_la_LIBADD = \
+	libspl_assert.la
 
-USER_ASM = atomic.S
+libspl_la_LIBADD += $(LIBCLOCK_GETTIME)
 
-KERNEL_C =
-
-nodist_libspl_la_SOURCES = \
-	$(USER_C) \
-	$(USER_ASM) \
-	$(KERNEL_C)
-
-libspl_la_LIBADD = -lrt
-
-EXTRA_DIST = $(USER_C)
+libspl_assert_la_LIBADD = $(BACKTRACE_LIBS) $(LIBUNWIND_LIBS)

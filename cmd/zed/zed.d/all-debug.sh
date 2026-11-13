@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2154
 #
 # Log all environment variables to ZED_DEBUG_LOG.
 #
@@ -10,15 +11,13 @@
 
 : "${ZED_DEBUG_LOG:="${TMPDIR:="/tmp"}/zed.debug.log"}"
 
-lockfile="$(basename -- "${ZED_DEBUG_LOG}").lock"
+zed_exit_if_ignoring_this_event
 
-umask 077
-zed_lock "${lockfile}"
-exec >> "${ZED_DEBUG_LOG}"
+zed_lock "${ZED_DEBUG_LOG}"
+{
+	env | sort
+	echo
+} 1>&"${ZED_FLOCK_FD}"
+zed_unlock "${ZED_DEBUG_LOG}"
 
-printenv | sort
-echo
-
-exec >&-
-zed_unlock "${lockfile}"
 exit 0

@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
@@ -24,7 +15,7 @@
  */
 
 /*
- * Copyright (c) 2012, 2014 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2016 by Delphix. All rights reserved.
  */
 
 /*
@@ -42,10 +33,9 @@
 #include <sys/fs/zfs.h>
 #include <sys/zio.h>
 
-/* ARGSUSED */
 static int
 vdev_missing_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
-    uint64_t *ashift)
+    uint64_t *ashift, uint64_t *pshift, cred_t *cr)
 {
 	/*
 	 * Really this should just fail.  But then the root vdev will be in the
@@ -53,19 +43,20 @@ vdev_missing_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	 * VDEV_AUX_BAD_GUID_SUM.  So we pretend to succeed, knowing that we
 	 * will fail the GUID sum check before ever trying to open the pool.
 	 */
+	(void) vd, (void) cr;
 	*psize = 0;
 	*max_psize = 0;
 	*ashift = 0;
+	*pshift = 0;
 	return (0);
 }
 
-/* ARGSUSED */
 static void
 vdev_missing_close(vdev_t *vd)
 {
+	(void) vd;
 }
 
-/* ARGSUSED */
 static void
 vdev_missing_io_start(zio_t *zio)
 {
@@ -73,36 +64,62 @@ vdev_missing_io_start(zio_t *zio)
 	zio_execute(zio);
 }
 
-/* ARGSUSED */
 static void
 vdev_missing_io_done(zio_t *zio)
 {
+	(void) zio;
 }
 
 vdev_ops_t vdev_missing_ops = {
-	vdev_missing_open,
-	vdev_missing_close,
-	vdev_default_asize,
-	vdev_missing_io_start,
-	vdev_missing_io_done,
-	NULL,
-	NULL,
-	NULL,
-	NULL,
-	VDEV_TYPE_MISSING,	/* name of this vdev type */
-	B_TRUE			/* leaf vdev */
+	.vdev_op_init = NULL,
+	.vdev_op_fini = NULL,
+	.vdev_op_open = vdev_missing_open,
+	.vdev_op_close = vdev_missing_close,
+	.vdev_op_psize_to_asize = vdev_default_asize,
+	.vdev_op_asize_to_psize = vdev_default_psize,
+	.vdev_op_min_asize = vdev_default_min_asize,
+	.vdev_op_min_attach_size = vdev_default_min_attach_size,
+	.vdev_op_min_alloc = NULL,
+	.vdev_op_io_start = vdev_missing_io_start,
+	.vdev_op_io_done = vdev_missing_io_done,
+	.vdev_op_state_change = NULL,
+	.vdev_op_need_resilver = NULL,
+	.vdev_op_hold = NULL,
+	.vdev_op_rele = NULL,
+	.vdev_op_remap = NULL,
+	.vdev_op_xlate = NULL,
+	.vdev_op_rebuild_asize = NULL,
+	.vdev_op_metaslab_init = NULL,
+	.vdev_op_config_generate = NULL,
+	.vdev_op_nparity = NULL,
+	.vdev_op_ndisks = NULL,
+	.vdev_op_type = VDEV_TYPE_MISSING,	/* name of this vdev type */
+	.vdev_op_leaf = B_TRUE			/* leaf vdev */
 };
 
 vdev_ops_t vdev_hole_ops = {
-	vdev_missing_open,
-	vdev_missing_close,
-	vdev_default_asize,
-	vdev_missing_io_start,
-	vdev_missing_io_done,
-	NULL,
-	NULL,
-	NULL,
-	NULL,
-	VDEV_TYPE_HOLE,		/* name of this vdev type */
-	B_TRUE			/* leaf vdev */
+	.vdev_op_init = NULL,
+	.vdev_op_fini = NULL,
+	.vdev_op_open = vdev_missing_open,
+	.vdev_op_close = vdev_missing_close,
+	.vdev_op_psize_to_asize = vdev_default_asize,
+	.vdev_op_asize_to_psize = vdev_default_psize,
+	.vdev_op_min_asize = vdev_default_min_asize,
+	.vdev_op_min_attach_size = vdev_default_min_attach_size,
+	.vdev_op_min_alloc = NULL,
+	.vdev_op_io_start = vdev_missing_io_start,
+	.vdev_op_io_done = vdev_missing_io_done,
+	.vdev_op_state_change = NULL,
+	.vdev_op_need_resilver = NULL,
+	.vdev_op_hold = NULL,
+	.vdev_op_rele = NULL,
+	.vdev_op_remap = NULL,
+	.vdev_op_xlate = NULL,
+	.vdev_op_rebuild_asize = NULL,
+	.vdev_op_metaslab_init = NULL,
+	.vdev_op_config_generate = NULL,
+	.vdev_op_nparity = NULL,
+	.vdev_op_ndisks = NULL,
+	.vdev_op_type = VDEV_TYPE_HOLE,		/* name of this vdev type */
+	.vdev_op_leaf = B_TRUE			/* leaf vdev */
 };

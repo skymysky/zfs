@@ -1,6 +1,5 @@
 #!/bin/ksh -p
-#
-# CDDL HEADER START
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -9,9 +8,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
-#
-# CDDL HEADER END
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -38,8 +35,9 @@ verify_runnable "both"
 
 function cleanup
 {
-	default_cleanup_noexit
-	log_must set_tunable64 zfs_txg_timeout $TXG_TIMEOUT_DEFAULT
+	mmp_clear_suspended $TESTPOOL
+	poolexists $TESTPOOL && destroy_pool $TESTPOOL
+	log_must set_tunable64 TXG_TIMEOUT $TXG_TIMEOUT_DEFAULT
 	log_must rm -f $PREV_UBER $CURR_UBER
 	log_must mmp_clear_hostid
 }
@@ -47,15 +45,15 @@ function cleanup
 log_assert "mmp thread writes uberblocks (MMP)"
 log_onexit cleanup
 
-log_must set_tunable64 zfs_txg_timeout $TXG_TIMEOUT_LONG
+log_must set_tunable64 TXG_TIMEOUT $TXG_TIMEOUT_LONG
 log_must mmp_set_hostid $HOSTID1
 
-default_setup_noexit $DISK
+log_must zpool create -f $TESTPOOL $DISK
 log_must zpool set multihost=on $TESTPOOL
 
-log_must zdb -u $TESTPOOL > $PREV_UBER
+log_must eval "zdb -u $TESTPOOL > $PREV_UBER"
 log_must sleep 5
-log_must zdb -u $TESTPOOL > $CURR_UBER
+log_must eval "zdb -u $TESTPOOL > $CURR_UBER"
 
 if diff -u "$CURR_UBER" "$PREV_UBER"; then
 	log_fail "mmp failed to update uberblocks"

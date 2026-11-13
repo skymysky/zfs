@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -48,11 +39,8 @@ verify_runnable "both"
 
 function cleanup
 {
-	snapexists $snap && \
-		log_must zfs destroy $snap
-
-	datasetexists $ctr && \
-		log_must zfs destroy -r $ctr
+	snapexists $snap && destroy_dataset $snap
+	datasetexists $ctr && destroy_dataset $ctr -r
 
 	[[ -e $origfile ]] && \
 		log_must rm -f $origfile
@@ -69,12 +57,8 @@ function do_testing # <prop> <prop_value>
 	log_must zfs set $property=$prop_val $fs
 	file_write -o create -f $origfile -b $BLOCK_SIZE -c $WRITE_COUNT
 	log_must zfs snapshot $snap
-	zfs send $snap > $stream
-	(( $? != 0 )) && \
-		log_fail "'zfs send' fails to create send streams."
-	zfs receive -d $ctr <$stream
-	(( $? != 0 )) && \
-		log_fail "'zfs receive' fails to receive send streams."
+	log_must eval "zfs send $snap > $stream"
+	log_must eval "zfs receive -d $ctr <$stream"
 
 	#verify receive result
 	! datasetexists $rstfs && \
@@ -116,7 +100,7 @@ origfile=$TESTDIR/$TESTFILE1
 rstfile=/$rstfs/$TESTFILE1
 origsnapfile=$TESTDIR/$snapdir/$TESTFILE1
 rstsnapfile=/$rstfs/$snapdir/$TESTFILE1
-stream=/var/tmp/streamfile.$$
+stream=$TEST_BASE_DIR/streamfile.$$
 
 set -A props "compression" "checksum" "recordsize"
 set -A propval "on lzjb" "on fletcher2 fletcher4 sha256" \

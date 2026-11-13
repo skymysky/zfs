@@ -1,29 +1,20 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 /*
- * Copyright (c) 2013, 2015 by Delphix. All rights reserved.
+ * Copyright (c) 2013, 2019 by Delphix. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -57,11 +48,11 @@ space_reftree_compare(const void *x1, const void *x2)
 	const space_ref_t *sr1 = (const space_ref_t *)x1;
 	const space_ref_t *sr2 = (const space_ref_t *)x2;
 
-	int cmp = AVL_CMP(sr1->sr_offset, sr2->sr_offset);
+	int cmp = TREE_CMP(sr1->sr_offset, sr2->sr_offset);
 	if (likely(cmp))
 		return (cmp);
 
-	return (AVL_PCMP(sr1, sr2));
+	return (TREE_PCMP(sr1, sr2));
 }
 
 void
@@ -107,14 +98,15 @@ space_reftree_add_seg(avl_tree_t *t, uint64_t start, uint64_t end,
  * Convert (or add) a range tree into a reference tree.
  */
 void
-space_reftree_add_map(avl_tree_t *t, range_tree_t *rt, int64_t refcnt)
+space_reftree_add_map(avl_tree_t *t, zfs_range_tree_t *rt, int64_t refcnt)
 {
-	range_seg_t *rs;
+	zfs_btree_index_t where;
 
-	ASSERT(MUTEX_HELD(rt->rt_lock));
-
-	for (rs = avl_first(&rt->rt_root); rs; rs = AVL_NEXT(&rt->rt_root, rs))
-		space_reftree_add_seg(t, rs->rs_start, rs->rs_end, refcnt);
+	for (zfs_range_seg_t *rs = zfs_btree_first(&rt->rt_root, &where); rs;
+	    rs = zfs_btree_next(&rt->rt_root, &where, &where)) {
+		space_reftree_add_seg(t, zfs_rs_get_start(rs, rt),
+		    zfs_rs_get_end(rs, rt),  refcnt);
+	}
 }
 
 /*
@@ -122,15 +114,13 @@ space_reftree_add_map(avl_tree_t *t, range_tree_t *rt, int64_t refcnt)
  * all members of the reference tree for which refcnt >= minref.
  */
 void
-space_reftree_generate_map(avl_tree_t *t, range_tree_t *rt, int64_t minref)
+space_reftree_generate_map(avl_tree_t *t, zfs_range_tree_t *rt, int64_t minref)
 {
 	uint64_t start = -1ULL;
 	int64_t refcnt = 0;
 	space_ref_t *sr;
 
-	ASSERT(MUTEX_HELD(rt->rt_lock));
-
-	range_tree_vacate(rt, NULL, NULL);
+	zfs_range_tree_vacate(rt, NULL, NULL);
 
 	for (sr = avl_first(t); sr != NULL; sr = AVL_NEXT(t, sr)) {
 		refcnt += sr->sr_refcnt;
@@ -143,11 +133,12 @@ space_reftree_generate_map(avl_tree_t *t, range_tree_t *rt, int64_t minref)
 				uint64_t end = sr->sr_offset;
 				ASSERT(start <= end);
 				if (end > start)
-					range_tree_add(rt, start, end - start);
+					zfs_range_tree_add(rt, start, end -
+					    start);
 				start = -1ULL;
 			}
 		}
 	}
-	ASSERT(refcnt == 0);
+	ASSERT0(refcnt);
 	ASSERT(start == -1ULL);
 }

@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -26,7 +17,7 @@
 #
 
 #
-# Copyright (c) 2016 by Delphix. All rights reserved.
+# Copyright (c) 2016, 2020 by Delphix. All rights reserved.
 #
 
 . $STF_SUITE/include/libtest.shlib
@@ -66,11 +57,12 @@ function cleanup
 	fi
 
 	datasetexists $TESTPOOL/$TESTFS-clone && \
-		log_must zfs destroy -f $TESTPOOL/$TESTFS-clone
+		destroy_dataset $TESTPOOL/$TESTFS-clone -f
 
-	if snapexists "$TESTPOOL/$TESTFS@snapshot"; then
-		log_must zfs destroy -f $TESTPOOL/$TESTFS@snapshot
-	fi
+	snapexists "$TESTPOOL/$TESTFS@snapshot" && \
+		destroy_dataset $TESTPOOL/$TESTFS@snapshot -f
+
+	log_must zfs share -a
 }
 
 
@@ -138,10 +130,19 @@ done
 #
 log_must zfs share -a
 
+#
+# We need to unset __ZFS_POOL_EXCLUDE so that we include all file systems
+# in the os-specific zfs exports file. This will be reset by the next test.
+#
+unset __ZFS_POOL_EXCLUDE
+
 i=0
 while (( i < ${#fs[*]} )); do
 	is_shared ${fs[i]} || \
 	    log_fail "File system ${fs[i]} is not shared (share -a)"
+
+	is_exported ${fs[i]} || \
+	    log_fail "File system ${fs[i]} is not exported (share -a)"
 
 	((i = i + 2))
 done

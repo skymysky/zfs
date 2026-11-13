@@ -1,6 +1,5 @@
 #!/bin/ksh -p
-#
-# CDDL HEADER START
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -9,9 +8,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
-#
-# CDDL HEADER END
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -28,13 +25,15 @@
 # STRATEGY:
 # 1. Create an encrypted dataset
 # 2. Create an encrypted child dataset
-# 3. Attempt to change the key without any flags
-# 4. Attempt to change the key specifying keylocation
-# 5. Attempt to change the key specifying keyformat
-# 6. Verify the new encryption root can unload and load its key
-# 7. Recreate the child dataset
-# 8. Attempt to change the key specifying both the keylocation and keyformat
-# 9. Verify the new encryption root can unload and load its key
+# 3. Create an unencrypted child dataset
+# 4. Attempt to change the key without any flags
+# 5. Attempt to change the key specifying keylocation
+# 6. Attempt to change the key specifying keyformat
+# 7. Verify the new encryption root can unload and load its key
+# 8. Recreate the child dataset
+# 9. Attempt to change the key specifying both the keylocation and keyformat
+# 10. Verify the new encryption root can unload and load its key
+# 11. Verify the unencrytped child is still accessible normally
 #
 
 verify_runnable "both"
@@ -42,7 +41,7 @@ verify_runnable "both"
 function cleanup
 {
 	datasetexists $TESTPOOL/$TESTFS1 && \
-		log_must zfs destroy -r $TESTPOOL/$TESTFS1
+		destroy_dataset $TESTPOOL/$TESTFS1 -r
 }
 
 log_onexit cleanup
@@ -53,6 +52,7 @@ log_assert "'zfs change-key' should promote an encrypted child to an" \
 log_must eval "echo $PASSPHRASE1 | zfs create -o encryption=on" \
 	"-o keyformat=passphrase -o keylocation=prompt $TESTPOOL/$TESTFS1"
 log_must zfs create $TESTPOOL/$TESTFS1/child
+log_must zfs create -o encryption=off $TESTPOOL/$TESTFS1/child2
 
 log_mustnot eval "echo $PASSPHRASE2 | zfs change-key" \
 	"$TESTPOOL/$TESTFS1/child"
@@ -82,5 +82,7 @@ log_must key_unavailable $TESTPOOL/$TESTFS1/child
 
 log_must eval "echo $PASSPHRASE2 | zfs load-key $TESTPOOL/$TESTFS1/child"
 log_must key_available $TESTPOOL/$TESTFS1/child
+log_must zfs unmount $TESTPOOL/$TESTFS1/child2
+log_must zfs mount $TESTPOOL/$TESTFS1/child2
 
 log_pass "'zfs change-key' promotes an encrypted child to an encryption root"

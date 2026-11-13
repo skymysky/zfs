@@ -1,27 +1,19 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2016 by Delphix. All rights reserved.
  * Copyright 2017 Jason King
+ * Copyright (c) 2017, Intel Corporation.
  */
 
 #include <assert.h>
@@ -32,112 +24,15 @@
 #include <stdlib.h>
 #include <sys/spa.h>
 #include <sys/fs/zfs.h>
-#include <sys/refcount.h>
-#include <dlfcn.h>
+#include <sys/zfs_refcount.h>
+#include <sys/zfs_ioctl.h>
+#include <sys/tunables.h>
+#include <libzutil.h>
+#include <libzpool.h>
 
 /*
  * Routines needed by more than one client of libzpool.
  */
-
-/* The largest suffix that can fit, aka an exabyte (2^60 / 10^18) */
-#define	INDEX_MAX	(6)
-
-/* Verify INDEX_MAX fits */
-CTASSERT_GLOBAL(INDEX_MAX * 10 < sizeof (uint64_t) * 8);
-
-void
-nicenum_scale(uint64_t n, size_t units, char *buf, size_t buflen,
-    uint32_t flags)
-{
-	uint64_t divamt = 1024;
-	uint64_t divisor = 1;
-	int index = 0;
-	int rc = 0;
-	char u;
-
-	if (units == 0)
-		units = 1;
-
-	if (n > 0) {
-		n *= units;
-		if (n < units)
-			goto overflow;
-	}
-
-	if (flags & NN_DIVISOR_1000)
-		divamt = 1000;
-
-	/*
-	 * This tries to find the suffix S(n) such that
-	 * S(n) <= n < S(n+1), where S(n) = 2^(n*10) | 10^(3*n)
-	 * (i.e. 1024/1000, 1,048,576/1,000,000, etc).  Stop once S(n)
-	 * is the largest prefix supported (i.e. don't bother computing
-	 * and checking S(n+1).  Since INDEX_MAX should be the largest
-	 * suffix that fits (currently an exabyte), S(INDEX_MAX + 1) is
-	 * never checked as it would overflow.
-	 */
-	while (index < INDEX_MAX) {
-		uint64_t newdiv = divisor * divamt;
-
-		/* CTASSERT() guarantee these never trip */
-		VERIFY3U(newdiv, >=, divamt);
-		VERIFY3U(newdiv, >=, divisor);
-
-		if (n < newdiv)
-			break;
-
-		divisor = newdiv;
-		index++;
-	}
-
-	u = " KMGTPE"[index];
-
-	if (index == 0) {
-		rc = snprintf(buf, buflen, "%llu", (u_longlong_t)n);
-	} else if (n % divisor == 0) {
-		/*
-		 * If this is an even multiple of the base, always display
-		 * without any decimal precision.
-		 */
-		rc = snprintf(buf, buflen, "%llu%c",
-		    (u_longlong_t)(n / divisor), u);
-	} else {
-		/*
-		 * We want to choose a precision that reflects the best choice
-		 * for fitting in 5 characters.  This can get rather tricky
-		 * when we have numbers that are very close to an order of
-		 * magnitude.  For example, when displaying 10239 (which is
-		 * really 9.999K), we want only a single place of precision
-		 * for 10.0K.  We could develop some complex heuristics for
-		 * this, but it's much easier just to try each combination
-		 * in turn.
-		 */
-		int i;
-		for (i = 2; i >= 0; i--) {
-			if ((rc = snprintf(buf, buflen, "%.*f%c", i,
-			    (double)n / divisor, u)) <= 5)
-				break;
-		}
-	}
-
-	if (rc + 1 > buflen || rc < 0)
-		goto overflow;
-
-	return;
-
-overflow:
-	/* prefer a more verbose message if possible */
-	if (buflen > 10)
-		(void) strlcpy(buf, "<overflow>", buflen);
-	else
-		(void) strlcpy(buf, "??", buflen);
-}
-
-void
-nicenum(uint64_t num, char *buf, size_t buflen)
-{
-	nicenum_scale(num, 1, buf, buflen, 0);
-}
 
 static void
 show_vdev_stats(const char *desc, const char *ctype, nvlist_t *nv, int indent)
@@ -150,9 +45,8 @@ show_vdev_stats(const char *desc, const char *ctype, nvlist_t *nv, int indent)
 	uint_t c, children;
 	char used[6], avail[6];
 	char rops[6], wops[6], rbytes[6], wbytes[6], rerr[6], werr[6], cerr[6];
-	char *prefix = "";
 
-	v0 = umem_zalloc(sizeof (*v0), UMEM_NOFAIL);
+	v0 = kmem_zalloc(sizeof (*v0), KM_SLEEP);
 
 	if (indent == 0 && desc != NULL) {
 		(void) printf("                           "
@@ -162,14 +56,24 @@ show_vdev_stats(const char *desc, const char *ctype, nvlist_t *nv, int indent)
 	}
 
 	if (desc != NULL) {
+		const char *suffix = "";
+		const char *bias = NULL;
+		char bias_suffix[32];
+
 		(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_IS_LOG, &is_log);
-
-		if (is_log)
-			prefix = "log ";
-
+		(void) nvlist_lookup_string(nv, ZPOOL_CONFIG_ALLOCATION_BIAS,
+		    &bias);
 		if (nvlist_lookup_uint64_array(nv, ZPOOL_CONFIG_VDEV_STATS,
 		    (uint64_t **)&vs, &c) != 0)
 			vs = v0;
+
+		if (bias != NULL) {
+			(void) snprintf(bias_suffix, sizeof (bias_suffix),
+			    " (%s)", bias);
+			suffix = bias_suffix;
+		} else if (is_log) {
+			suffix = " (log)";
+		}
 
 		sec = MAX(1, vs->vs_timestamp / NANOSEC);
 
@@ -187,33 +91,34 @@ show_vdev_stats(const char *desc, const char *ctype, nvlist_t *nv, int indent)
 
 		(void) printf("%*s%s%*s%*s%*s %5s %5s %5s %5s %5s %5s %5s\n",
 		    indent, "",
-		    prefix,
-		    (int)(indent+strlen(prefix)-25-(vs->vs_space ? 0 : 12)),
 		    desc,
+		    (int)(indent+strlen(desc)-25-(vs->vs_space ? 0 : 12)),
+		    suffix,
 		    vs->vs_space ? 6 : 0, vs->vs_space ? used : "",
 		    vs->vs_space ? 6 : 0, vs->vs_space ? avail : "",
 		    rops, wops, rbytes, wbytes, rerr, werr, cerr);
 	}
-	free(v0);
+	kmem_free(v0, sizeof (*v0));
 
 	if (nvlist_lookup_nvlist_array(nv, ctype, &child, &children) != 0)
 		return;
 
 	for (c = 0; c < children; c++) {
 		nvlist_t *cnv = child[c];
-		char *cname = NULL, *tname;
+		const char *cname = NULL;
+		char *tname;
 		uint64_t np;
 		int len;
 		if (nvlist_lookup_string(cnv, ZPOOL_CONFIG_PATH, &cname) &&
 		    nvlist_lookup_string(cnv, ZPOOL_CONFIG_TYPE, &cname))
 			cname = "<unknown>";
 		len = strlen(cname) + 2;
-		tname = umem_zalloc(len, UMEM_NOFAIL);
+		tname = kmem_zalloc(len, KM_SLEEP);
 		(void) strlcpy(tname, cname, len);
 		if (nvlist_lookup_uint64(cnv, ZPOOL_CONFIG_NPARITY, &np) == 0)
 			tname[strlen(tname)] = '0' + np;
 		show_vdev_stats(tname, ctype, cnv, indent + 2);
-		free(tname);
+		kmem_free(tname, len);
 	}
 }
 
@@ -221,14 +126,12 @@ void
 show_pool_stats(spa_t *spa)
 {
 	nvlist_t *config, *nvroot;
-	char *name;
+	const char *name;
 
-	VERIFY(spa_get_stats(spa_name(spa), &config, NULL, 0) == 0);
+	VERIFY0(spa_get_stats(spa_name(spa), &config, NULL, 0));
 
-	VERIFY(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
-	    &nvroot) == 0);
-	VERIFY(nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME,
-	    &name) == 0);
+	VERIFY0(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE, &nvroot));
+	VERIFY0(nvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME, &name));
 
 	show_vdev_stats(name, ZPOOL_CONFIG_CHILDREN, nvroot, 0);
 	show_vdev_stats(NULL, ZPOOL_CONFIG_L2CACHE, nvroot, 0);
@@ -238,56 +141,201 @@ show_pool_stats(spa_t *spa)
 }
 
 /*
- * Sets given global variable in libzpool to given unsigned 32-bit value.
- * arg: "<variable>=<value>"
+ * Common helper for working with libzpool tunables from the command line.
+ *
+ * Valid inputs:
+ *
+ *   <name>		show named tunable and value
+ *   <name>=<value>	set tunable value
+ *
+ *   show		show all tunables and values
+ *   show=<name>	show named tunable and value
+ *   info		show info about all tunables
+ *   info=<name>	show info about named tunable
  */
-int
-set_global_var(char *arg)
+
+typedef enum { SHOW, INFO, SET } tunable_mode_t;
+
+static int
+list_tunables_cb(const zfs_tunable_t *tunable, void *arg)
 {
-	void *zpoolhdl;
-	char *varname = arg, *varval;
-	u_longlong_t val;
+	const tunable_mode_t *mode = arg;
 
-#ifndef _LITTLE_ENDIAN
-	/*
-	 * On big endian systems changing a 64-bit variable would set the high
-	 * 32 bits instead of the low 32 bits, which could cause unexpected
-	 * results.
-	 */
-	fprintf(stderr, "Setting global variables is only supported on "
-	    "little-endian systems\n");
-	return (ENOTSUP);
-#endif
-	if (arg != NULL && (varval = strchr(arg, '=')) != NULL) {
-		*varval = '\0';
-		varval++;
-		val = strtoull(varval, NULL, 0);
-		if (val > UINT32_MAX) {
-			fprintf(stderr, "Value for global variable '%s' must "
-			    "be a 32-bit unsigned integer\n", varname);
-			return (EOVERFLOW);
-		}
+	static const char *type[] = {
+		"int", "uint", "ulong", "u64", "str",
+	};
+	static const char *perm[] = {
+		"rw", "rd",
+	};
+
+	if (*mode == SHOW) {
+		char val[64];
+		int err = zfs_tunable_get(tunable, val, sizeof (val));
+		if (err == 0)
+			printf("%s: %s\n", tunable->zt_name, val);
+		else
+			printf("%s: [error getting tunable value: %s]\n",
+			    tunable->zt_name, strerror(err));
 	} else {
-		return (EINVAL);
-	}
-
-	zpoolhdl = dlopen("libzpool.so", RTLD_LAZY);
-	if (zpoolhdl != NULL) {
-		uint32_t *var;
-		var = dlsym(zpoolhdl, varname);
-		if (var == NULL) {
-			fprintf(stderr, "Global variable '%s' does not exist "
-			    "in libzpool.so\n", varname);
-			return (EINVAL);
-		}
-		*var = (uint32_t)val;
-
-		dlclose(zpoolhdl);
-	} else {
-		fprintf(stderr, "Failed to open libzpool.so to set global "
-		    "variable\n");
-		return (EIO);
+		printf("%s [%s %s]: %s\n", tunable->zt_name,
+		    type[tunable->zt_type], perm[tunable->zt_perm],
+		    tunable->zt_desc);
 	}
 
 	return (0);
 }
+int
+handle_tunable_option(const char *_arg, boolean_t quiet)
+{
+	int err = 0;
+	char *arg = strdup(_arg);
+	char *k, *v;
+
+	v = arg;
+	k = strsep(&v, "=");
+
+	tunable_mode_t mode;
+
+	if (strcmp(k, "show") == 0) {
+		mode = SHOW;
+		k = v;
+	} else if (strcmp(k, "info") == 0) {
+		mode = INFO;
+		k = v;
+	} else if (v == NULL) {
+		mode = SHOW;
+	} else {
+		mode = SET;
+	}
+
+	if (quiet && mode != SET) {
+		err = EINVAL;
+		goto out;
+	}
+
+	if (mode == SET) {
+		const zfs_tunable_t *tunable = zfs_tunable_lookup(k);
+		if (tunable == NULL) {
+			err = ENOENT;
+			goto out;
+		}
+
+		char vold[256], vnew[256];
+		if (zfs_tunable_get(tunable, vold, sizeof (vold)) != 0)
+			strcpy(vold, "???");
+		err = zfs_tunable_set(tunable, v);
+		if (err != 0)
+			goto out;
+		if (zfs_tunable_get(tunable, vnew, sizeof (vnew)) != 0)
+			strcpy(vnew, "???");
+
+		if (!quiet)
+			printf("%s: %s -> %s\n", k, vold, vnew);
+	} else if (k != NULL) {
+		const zfs_tunable_t *tunable = zfs_tunable_lookup(k);
+		if (tunable == NULL) {
+			err = ENOENT;
+			goto out;
+		}
+		list_tunables_cb(tunable, &mode);
+	} else {
+		zfs_tunable_iter(list_tunables_cb, &mode);
+	}
+
+out:
+	if (!quiet) {
+		if (err == ENOENT)
+			fprintf(stderr, "no such tunable: %s\n", k);
+		else if (err != 0)
+			fprintf(stderr, "couldn't set tunable '%s': %s\n",
+			    k, strerror(err));
+	}
+
+	free(arg);
+	return (err);
+}
+
+static nvlist_t *
+refresh_config(void *unused, nvlist_t *tryconfig)
+{
+	(void) unused;
+	return (spa_tryimport(tryconfig));
+}
+
+#if defined(__FreeBSD__)
+
+#include <sys/param.h>
+#include <sys/sysctl.h>
+#include <os/freebsd/zfs/sys/zfs_ioctl_compat.h>
+
+static int
+pool_active(void *unused, const char *name, uint64_t guid, boolean_t *isactive)
+{
+	(void) unused, (void) guid;
+	zfs_iocparm_t zp;
+	zfs_cmd_t *zc = NULL;
+	unsigned long request;
+	int ret;
+
+	int fd = open(ZFS_DEV, O_RDWR | O_CLOEXEC);
+	if (fd < 0)
+		return (-1);
+
+	/*
+	 * Use ZFS_IOC_POOL_STATS to check if the pool is active.  We want to
+	 * avoid adding a dependency on libzfs_core solely for this ioctl(),
+	 * therefore we manually craft the stats command.  Note that the command
+	 * ID is identical between the openzfs and legacy ioctl() formats.
+	 */
+	zc = kmem_zalloc(sizeof (zfs_cmd_t), KM_SLEEP);
+
+	(void) strlcpy(zc->zc_name, name, sizeof (zc->zc_name));
+	zp.zfs_cmd = (uint64_t)(uintptr_t)zc;
+	zp.zfs_cmd_size = sizeof (zfs_cmd_t);
+	zp.zfs_ioctl_version = ZFS_IOCVER_OZFS;
+
+	request = _IOWR('Z', ZFS_IOC_POOL_STATS, zfs_iocparm_t);
+	ret = ioctl(fd, request, &zp);
+
+	free((void *)(uintptr_t)zc->zc_nvlist_dst);
+	kmem_free(zc, sizeof (zfs_cmd_t));
+
+	(void) close(fd);
+
+	*isactive = (ret == 0);
+
+	return (0);
+}
+#else
+static int
+pool_active(void *unused, const char *name, uint64_t guid,
+    boolean_t *isactive)
+{
+	(void) unused, (void) guid;
+	int fd = open(ZFS_DEV, O_RDWR | O_CLOEXEC);
+	if (fd < 0)
+		return (-1);
+
+	/*
+	 * Use ZFS_IOC_POOL_STATS to check if a pool is active.
+	 */
+	zfs_cmd_t *zcp = kmem_zalloc(sizeof (zfs_cmd_t), KM_SLEEP);
+	(void) strlcpy(zcp->zc_name, name, sizeof (zcp->zc_name));
+
+	int ret = ioctl(fd, ZFS_IOC_POOL_STATS, zcp);
+
+	free((void *)(uintptr_t)zcp->zc_nvlist_dst);
+	kmem_free(zcp, sizeof (zfs_cmd_t));
+
+	(void) close(fd);
+
+	*isactive = (ret == 0);
+
+	return (0);
+}
+#endif
+
+pool_config_ops_t libzpool_config_ops = {
+	.pco_refresh_config = refresh_config,
+	.pco_pool_active = pool_active,
+};

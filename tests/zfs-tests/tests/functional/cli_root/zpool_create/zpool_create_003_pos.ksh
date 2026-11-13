@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -38,7 +29,8 @@
 # actually creating the pool.
 #
 # STRATEGY:
-# 1. Create storage pool with -n option
+# 1. Create storage pool with -n option; this should only work when valid
+#    properties are specified on the command line
 # 2. Verify the pool has not been actually created
 #
 
@@ -46,41 +38,49 @@ verify_runnable "global"
 
 function cleanup
 {
-	[[ -e $tmpfile ]] && log_must rm -f $tmpfile
+	poolexists $TESTPOOL && destroy_pool $TESTPOOL
+	rm -f $tmpfile
 }
 
-tmpfile="/var/tmp/zpool_create_003.tmp$$"
+tmpfile="$TEST_BASE_DIR/zpool_create_003.tmp$$"
 
 log_assert "'zpool create -n <pool> <vspec> ...' can display the configuration" \
         "without actually creating the pool."
 
 log_onexit cleanup
 
-if [[ -n $DISK ]]; then
-        disk=$DISK
-else
-        disk=$DISK0
-fi
+typeset goodprops=('' '-o comment=text' '-O checksum=on' '-O ns:prop=value')
+typeset badprops=('-o ashift=9999' '-O doesnotexist=on' '-O volsize=10M')
 
-DISK=${DISKS%% *}
-if is_mpath_device $DISK; then
-	partition_disk $SIZE $disk 1
-fi
+# Verify zpool create -n with valid pool-level and fs-level options
+for prop in "${goodprops[@]}"
+do
+	#
+	# Make sure disk is clean before we use it
+	#
+	create_pool $TESTPOOL $DISK0 > $tmpfile
+	destroy_pool $TESTPOOL
 
-#
-# Make sure disk is clean before we use it
-#
-create_pool $TESTPOOL ${disk}${SLICE_PREFIX}${SLICE0} > $tmpfile
-destroy_pool $TESTPOOL
+	log_must eval "zpool create -n $prop $TESTPOOL $DISK0 > $tmpfile"
 
-zpool create -n  $TESTPOOL ${disk}${SLICE_PREFIX}${SLICE0} > $tmpfile
+	poolexists $TESTPOOL && \
+		log_fail "'zpool create -n <pool> <vspec> ...' fail."
 
-poolexists $TESTPOOL && \
-        log_fail "'zpool create -n <pool> <vspec> ...' fail."
+	str="would create '$TESTPOOL' with the following layout:"
+	grep "$str" $tmpfile >/dev/null 2>&1 || \
+		log_fail "'zpool create -n <pool> <vspec>...' is executed as unexpected."
+done
 
-str="would create '$TESTPOOL' with the following layout:"
-cat $tmpfile | grep "$str" >/dev/null 2>&1
-(( $? != 0 )) && \
-        log_fail "'zpool create -n <pool> <vspec>...' is executed as unexpected."
+# Verify zpool create -n with invalid options
+for prop in "${badprops[@]}"
+do
+	#
+	# Make sure disk is clean before we use it
+	#
+	create_pool $TESTPOOL $DISK0 > $tmpfile
+	destroy_pool $TESTPOOL
+
+	log_mustnot zpool create -n $prop $TESTPOOL $DISK0
+done
 
 log_pass "'zpool create -n <pool> <vspec>...' success."

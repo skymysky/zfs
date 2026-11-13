@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -44,12 +35,15 @@
 
 verify_runnable "global"
 
-if is_linux; then
-	log_unsupported "zfs set sharenfs=off won't unshare if already off"
-fi
+typeset exports_file
 
 function cleanup
 {
+	if [[ -n $exports_file ]]; then
+		log_must rm -f "$exports_file"
+		log_must exportfs -ra
+	fi
+
 	typeset -i i=0
 	while (( i < ${#mntp_fs[*]} )); do
 		is_shared ${mntp_fs[i]} && \
@@ -65,17 +59,14 @@ function cleanup
 	[[ -d $TESTDIR2 ]] && \
 		log_must rm -rf $TESTDIR2
 
-	if datasetexists "$TESTPOOL/$TESTCLONE"; then
-		log_must zfs destroy -f $TESTPOOL/$TESTCLONE
-	fi
+	datasetexists "$TESTPOOL/$TESTCLONE" && \
+		destroy_dataset $TESTPOOL/$TESTCLONE -f
 
-	if snapexists "$TESTPOOL/$TESTFS2@snapshot"; then
-		log_must zfs destroy -f $TESTPOOL/$TESTFS2@snapshot
-	fi
+	snapexists "$TESTPOOL/$TESTFS2@snapshot" && \
+		destroy_dataset $TESTPOOL/$TESTFS2@snapshot -f
 
-	if datasetexists "$TESTPOOL/$TESTFS2"; then
-		log_must zfs destroy -f $TESTPOOL/$TESTFS2
-	fi
+	datasetexists "$TESTPOOL/$TESTFS2" && \
+		destroy_dataset $TESTPOOL/$TESTFS2 -f
 }
 
 #
@@ -94,7 +85,7 @@ function test_legacy_unshare # <mntp> <filesystem>
 	    log_fail "'zfs set sharenfs=off' fails to make ZFS " \
 	    "filesystem $filesystem unshared."
 
-	log_must eval "share_nfs $mntp"
+	log_must share_nfs $mntp
 	is_shared $mntp || \
 	    log_fail "'share' command fails to share ZFS file system."
 	#
@@ -112,6 +103,7 @@ function test_legacy_unshare # <mntp> <filesystem>
 	is_shared $mntp || \
 	    log_fail "'zfs unshare <mountpoint>' fails to be aware" \
 	    "of legacy share."
+	log_must unshare_nfs $mntp
 }
 
 
@@ -156,6 +148,18 @@ done
 #
 # Share each of the file systems via legacy share.
 #
+if is_linux; then
+	log_must mkdir -p /etc/exports.d
+	exports_file=$(mktemp /etc/exports.d/zfs-unshare-XXXXXX.exports)
+	[[ -n $exports_file ]] || log_fail "Cannot create legacy exports file"
+	for mntp in "$TESTDIR" "$TESTDIR1" "$TESTDIR2"; do
+		log_must ksh -c \
+		    'printf "%s *(rw,sync,no_subtree_check)\n" "$1" >> "$2"' \
+		    ksh "$mntp" "$exports_file"
+	done
+	log_must exportfs -ra
+fi
+
 i=0
 while (( i < ${#mntp_fs[*]} )); do
         share_nfs ${mntp_fs[i]}
@@ -182,4 +186,3 @@ while (( i < ${#mntp_fs[*]} )); do
 done
 
 log_pass "'zfs unshare [-a]' succeeds to be aware of legacy share."
-

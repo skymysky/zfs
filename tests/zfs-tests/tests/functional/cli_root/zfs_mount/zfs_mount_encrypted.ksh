@@ -1,6 +1,5 @@
 #!/bin/ksh -p
-#
-# CDDL HEADER START
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -9,9 +8,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
-#
-# CDDL HEADER END
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -29,9 +26,12 @@
 # 1. Create an encrypted dataset
 # 2. Unmount and unload the dataset's key
 # 3. Verify the key is unloaded
-# 4. Attempt to load the key while mounting the dataset
-# 5. Verify the key is loaded
-# 6. Verify the dataset is mounted
+# 4. Attempt to mount all datasets in the pool
+# 5. Verify that no error code is produced
+# 6. Verify that the encrypted dataset is not mounted
+# 7. Attempt to load the key while mounting the dataset
+# 8. Verify the key is loaded
+# 9. Verify the dataset is mounted
 #
 
 verify_runnable "both"
@@ -39,7 +39,7 @@ verify_runnable "both"
 function cleanup
 {
 	datasetexists $TESTPOOL/$TESTFS1 && \
-		log_must zfs destroy -f $TESTPOOL/$TESTFS1
+		destroy_dataset $TESTPOOL/$TESTFS1 -f
 }
 
 log_onexit cleanup
@@ -52,6 +52,10 @@ log_must eval "echo $PASSPHRASE | zfs create -o encryption=on" \
 log_must zfs unmount $TESTPOOL/$TESTFS1
 log_must zfs unload-key $TESTPOOL/$TESTFS1
 log_must key_unavailable $TESTPOOL/$TESTFS1
+
+log_must zfs mount -a
+unmounted $TESTPOOL/$TESTFS1 || \
+	log_fail "Filesystem $TESTPOOL/$TESTFS1 is mounted"
 
 log_must eval "echo $PASSPHRASE | zfs mount -l $TESTPOOL/$TESTFS1"
 log_must key_available $TESTPOOL/$TESTFS1

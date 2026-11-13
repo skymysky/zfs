@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
@@ -75,25 +66,16 @@ aes_encrypt_contiguous_blocks(void *ctx, char *data, size_t length,
 	aes_ctx_t *aes_ctx = ctx;
 	int rv;
 
-	if (aes_ctx->ac_flags & CTR_MODE) {
-		rv = ctr_mode_contiguous_blocks(ctx, data, length, out,
-		    AES_BLOCK_LEN, aes_encrypt_block, aes_xor_block);
-	} else if (aes_ctx->ac_flags & CCM_MODE) {
+	if (aes_ctx->ac_flags & CCM_MODE) {
 		rv = ccm_mode_encrypt_contiguous_blocks(ctx, data, length,
 		    out, AES_BLOCK_LEN, aes_encrypt_block, aes_copy_block,
 		    aes_xor_block);
-	} else if (aes_ctx->ac_flags & (GCM_MODE|GMAC_MODE)) {
+	} else if (aes_ctx->ac_flags & GCM_MODE) {
 		rv = gcm_mode_encrypt_contiguous_blocks(ctx, data, length,
 		    out, AES_BLOCK_LEN, aes_encrypt_block, aes_copy_block,
 		    aes_xor_block);
-	} else if (aes_ctx->ac_flags & CBC_MODE) {
-		rv = cbc_encrypt_contiguous_blocks(ctx,
-		    data, length, out, AES_BLOCK_LEN, aes_encrypt_block,
-		    aes_copy_block, aes_xor_block);
-	} else {
-		rv = ecb_cipher_contiguous_blocks(ctx, data, length, out,
-		    AES_BLOCK_LEN, aes_encrypt_block);
-	}
+	} else
+		__builtin_unreachable();
 	return (rv);
 }
 
@@ -108,28 +90,15 @@ aes_decrypt_contiguous_blocks(void *ctx, char *data, size_t length,
 	aes_ctx_t *aes_ctx = ctx;
 	int rv;
 
-	if (aes_ctx->ac_flags & CTR_MODE) {
-		rv = ctr_mode_contiguous_blocks(ctx, data, length, out,
-		    AES_BLOCK_LEN, aes_encrypt_block, aes_xor_block);
-		if (rv == CRYPTO_DATA_LEN_RANGE)
-			rv = CRYPTO_ENCRYPTED_DATA_LEN_RANGE;
-	} else if (aes_ctx->ac_flags & CCM_MODE) {
+	if (aes_ctx->ac_flags & CCM_MODE) {
 		rv = ccm_mode_decrypt_contiguous_blocks(ctx, data, length,
 		    out, AES_BLOCK_LEN, aes_encrypt_block, aes_copy_block,
 		    aes_xor_block);
-	} else if (aes_ctx->ac_flags & (GCM_MODE|GMAC_MODE)) {
+	} else if (aes_ctx->ac_flags & GCM_MODE) {
 		rv = gcm_mode_decrypt_contiguous_blocks(ctx, data, length,
 		    out, AES_BLOCK_LEN, aes_encrypt_block, aes_copy_block,
 		    aes_xor_block);
-	} else if (aes_ctx->ac_flags & CBC_MODE) {
-		rv = cbc_decrypt_contiguous_blocks(ctx, data, length, out,
-		    AES_BLOCK_LEN, aes_decrypt_block, aes_copy_block,
-		    aes_xor_block);
-	} else {
-		rv = ecb_cipher_contiguous_blocks(ctx, data, length, out,
-		    AES_BLOCK_LEN, aes_decrypt_block);
-		if (rv == CRYPTO_DATA_LEN_RANGE)
-			rv = CRYPTO_ENCRYPTED_DATA_LEN_RANGE;
-	}
+	} else
+		__builtin_unreachable();
 	return (rv);
 }

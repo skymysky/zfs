@@ -1,26 +1,17 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012, 2015 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
  * Copyright (c) 2013 Steven Hartland. All rights reserved.
  */
 
@@ -83,6 +74,7 @@ dsl_dataset_user_hold_check(void *arg, dmu_tx_t *tx)
 {
 	dsl_dataset_user_hold_arg_t *dduha = arg;
 	dsl_pool_t *dp = dmu_tx_pool(tx);
+	nvlist_t *tmp_holds;
 
 	if (spa_version(dp->dp_spa) < SPA_VERSION_USERREFS)
 		return (SET_ERROR(ENOTSUP));
@@ -90,11 +82,31 @@ dsl_dataset_user_hold_check(void *arg, dmu_tx_t *tx)
 	if (!dmu_tx_is_syncing(tx))
 		return (0);
 
+	/*
+	 * Ensure the list has no duplicates by copying name/values from
+	 * non-unique dduha_holds to unique tmp_holds, and comparing counts.
+	 */
+	tmp_holds = fnvlist_alloc();
+	for (nvpair_t *pair = nvlist_next_nvpair(dduha->dduha_holds, NULL);
+	    pair != NULL; pair = nvlist_next_nvpair(dduha->dduha_holds, pair)) {
+		size_t len = strlen(nvpair_name(pair)) +
+		    strlen(fnvpair_value_string(pair));
+		char *nameval = kmem_zalloc(len + 2, KM_SLEEP);
+		(void) strlcpy(nameval, nvpair_name(pair), len + 2);
+		(void) strlcat(nameval, "@", len + 2);
+		(void) strlcat(nameval, fnvpair_value_string(pair), len + 2);
+		fnvlist_add_string(tmp_holds, nameval, "");
+		kmem_free(nameval, len + 2);
+	}
+	size_t tmp_count = fnvlist_num_pairs(tmp_holds);
+	fnvlist_free(tmp_holds);
+	if (tmp_count != fnvlist_num_pairs(dduha->dduha_holds))
+		return (SET_ERROR(EEXIST));
 	for (nvpair_t *pair = nvlist_next_nvpair(dduha->dduha_holds, NULL);
 	    pair != NULL; pair = nvlist_next_nvpair(dduha->dduha_holds, pair)) {
 		dsl_dataset_t *ds;
 		int error = 0;
-		char *htag, *name;
+		const char *htag, *name;
 
 		/* must be a snapshot */
 		name = nvpair_name(pair);
@@ -176,7 +188,7 @@ dsl_dataset_user_hold_sync_one_impl(nvlist_t *tmpholds, dsl_dataset_t *ds,
 
 	spa_history_log_internal_ds(ds, "hold", tx,
 	    "tag=%s temp=%d refs=%llu",
-	    htag, minor != 0, ds->ds_userrefs);
+	    htag, minor != 0, (u_longlong_t)ds->ds_userrefs);
 }
 
 typedef struct zfs_hold_cleanup_arg {
@@ -197,20 +209,21 @@ dsl_dataset_user_release_onexit(void *arg)
 		zfs_dbgmsg("couldn't release holds on pool=%s "
 		    "because pool is no longer loaded",
 		    ca->zhca_spaname);
-		return;
+		goto out;
 	}
 	if (spa_load_guid(spa) != ca->zhca_spa_load_guid) {
 		zfs_dbgmsg("couldn't release holds on pool=%s "
 		    "because pool is no longer loaded (guid doesn't match)",
 		    ca->zhca_spaname);
-		spa_close(spa, FTAG);
-		return;
+	} else {
+		(void) dsl_dataset_user_release_tmp(spa_get_dsl(spa),
+		    ca->zhca_holds);
 	}
+	spa_close(spa, FTAG);
 
-	(void) dsl_dataset_user_release_tmp(spa_get_dsl(spa), ca->zhca_holds);
+out:
 	fnvlist_free(ca->zhca_holds);
 	kmem_free(ca, sizeof (zfs_hold_cleanup_arg_t));
-	spa_close(spa, FTAG);
 }
 
 static void
@@ -281,7 +294,7 @@ dsl_dataset_user_hold_sync(void *arg, dmu_tx_t *tx)
  * holds is nvl of snapname -> holdname
  * errlist will be filled in with snapname -> error
  *
- * The snaphosts must all be in the same pool.
+ * The snapshots must all be in the same pool.
  *
  * Holds for snapshots that don't exist will be skipped.
  *
@@ -312,7 +325,8 @@ dsl_dataset_user_hold(nvlist_t *holds, minor_t cleanup_minor, nvlist_t *errlist)
 		return (0);
 
 	dduha.dduha_holds = holds;
-	dduha.dduha_chkholds = fnvlist_alloc();
+	/* chkholds can have non-unique name */
+	VERIFY0(nvlist_alloc(&dduha.dduha_chkholds, 0, KM_SLEEP));
 	dduha.dduha_errlist = errlist;
 	dduha.dduha_minor = cleanup_minor;
 
@@ -324,7 +338,7 @@ dsl_dataset_user_hold(nvlist_t *holds, minor_t cleanup_minor, nvlist_t *errlist)
 	return (ret);
 }
 
-typedef int (dsl_holdfunc_t)(dsl_pool_t *dp, const char *name, void *tag,
+typedef int (dsl_holdfunc_t)(dsl_pool_t *dp, const char *name, const void *tag,
     dsl_dataset_t **dsp);
 
 typedef struct dsl_dataset_user_release_arg {
@@ -337,7 +351,7 @@ typedef struct dsl_dataset_user_release_arg {
 
 /* Place a dataset hold on the snapshot identified by passed dsobj string */
 static int
-dsl_dataset_hold_obj_string(dsl_pool_t *dp, const char *dsobj, void *tag,
+dsl_dataset_hold_obj_string(dsl_pool_t *dp, const char *dsobj, const void *tag,
     dsl_dataset_t **dsp)
 {
 	return (dsl_dataset_hold_obj(dp, zfs_strtonum(dsobj, NULL), tag, dsp));
@@ -384,7 +398,7 @@ dsl_dataset_user_release_check_one(dsl_dataset_user_release_arg_t *ddura,
 				    snapname, holdname);
 				fnvlist_add_int32(ddura->ddura_errlist, errtag,
 				    ENOENT);
-				strfree(errtag);
+				kmem_strfree(errtag);
 			}
 			continue;
 		}
@@ -401,12 +415,22 @@ dsl_dataset_user_release_check_one(dsl_dataset_user_release_arg_t *ddura,
 	if (DS_IS_DEFER_DESTROY(ds) &&
 	    dsl_dataset_phys(ds)->ds_num_children == 1 &&
 	    ds->ds_userrefs == numholds) {
-		/* we need to destroy the snapshot as well */
-		if (dsl_dataset_long_held(ds)) {
+		/*
+		 * We need to destroy the snapshot as well, unless something
+		 * else is still holding it open.  An owner - a mount, or an
+		 * open snapshot zvol - ends at dsl_dataset_disown(), which
+		 * asks for the sweep that finishes the job, so the release
+		 * can go through and leave the mark where it is rather than
+		 * hand the caller a hold they cannot get rid of.  Every other
+		 * long hold has no such hook, and failing the release is what
+		 * gets the snapshot destroyed on the next try.
+		 */
+		if (!dsl_dataset_long_held(ds)) {
+			fnvlist_add_boolean(ddura->ddura_todelete, snapname);
+		} else if (!dsl_dataset_has_owner(ds)) {
 			fnvlist_free(holds_found);
 			return (SET_ERROR(EBUSY));
 		}
-		fnvlist_add_boolean(ddura->ddura_todelete, snapname);
 	}
 
 	if (numholds != 0) {
@@ -534,9 +558,9 @@ dsl_dataset_user_release_sync(void *arg, dmu_tx_t *tx)
  * errlist will be filled in with snapname -> error
  *
  * If tmpdp is not NULL the names for holds should be the dsobj's of snapshots,
- * otherwise they should be the names of shapshots.
+ * otherwise they should be the names of snapshots.
  *
- * As a release may cause snapshots to be destroyed this trys to ensure they
+ * As a release may cause snapshots to be destroyed this tries to ensure they
  * aren't mounted.
  *
  * The release of non-existent holds are skipped.
@@ -550,7 +574,7 @@ dsl_dataset_user_release_impl(nvlist_t *holds, nvlist_t *errlist,
 {
 	dsl_dataset_user_release_arg_t ddura;
 	nvpair_t *pair;
-	char *pool;
+	const char *pool;
 	int error;
 
 	pair = nvlist_next_nvpair(holds, NULL);
@@ -604,7 +628,8 @@ dsl_dataset_user_release_impl(nvlist_t *holds, nvlist_t *errlist,
 	    KM_SLEEP));
 
 	error = dsl_sync_task(pool, dsl_dataset_user_release_check,
-	    dsl_dataset_user_release_sync, &ddura, 0, ZFS_SPACE_CHECK_NONE);
+	    dsl_dataset_user_release_sync, &ddura, 0,
+	    ZFS_SPACE_CHECK_EXTRA_RESERVED);
 	fnvlist_free(ddura.ddura_todelete);
 	fnvlist_free(ddura.ddura_chkholds);
 
@@ -651,7 +676,7 @@ dsl_dataset_get_holds(const char *dsname, nvlist_t *nvl)
 		zap_attribute_t *za;
 		zap_cursor_t zc;
 
-		za = kmem_alloc(sizeof (zap_attribute_t), KM_SLEEP);
+		za = zap_attribute_alloc();
 		for (zap_cursor_init(&zc, ds->ds_dir->dd_pool->dp_meta_objset,
 		    dsl_dataset_phys(ds)->ds_userrefs_obj);
 		    zap_cursor_retrieve(&zc, za) == 0;
@@ -660,7 +685,7 @@ dsl_dataset_get_holds(const char *dsname, nvlist_t *nvl)
 			    za->za_first_integer);
 		}
 		zap_cursor_fini(&zc);
-		kmem_free(za, sizeof (zap_attribute_t));
+		zap_attribute_free(za);
 	}
 	dsl_dataset_rele(ds, FTAG);
 	dsl_pool_rele(dp, FTAG);

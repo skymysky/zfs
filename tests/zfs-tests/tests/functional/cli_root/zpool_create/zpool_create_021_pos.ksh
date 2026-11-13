@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -49,12 +40,13 @@ verify_runnable "global"
 function cleanup
 {
 	datasetexists $TESTPOOL && destroy_pool $TESTPOOL
+	log_must rm -df "/tmp/mnt$$"
 }
 
 log_onexit cleanup
 
-log_assert "'zpool create -O property=value pool' can successfully create a pool \
-		with correct filesystem property set."
+log_assert "'zpool create -O property=value pool' can successfully create a pool" \
+		"with correct filesystem property set."
 
 set -A RW_FS_PROP "quota=536870912" \
 		  "reservation=536870912" \
@@ -68,22 +60,23 @@ set -A RW_FS_PROP "quota=536870912" \
 		  "setuid=off" \
 		  "readonly=on" \
 		  "snapdir=visible" \
-		  "acltype=posixacl" \
+		  "acltype=posix" \
 		  "aclinherit=discard" \
-		  "canmount=off" \
-		  "zoned=on"
+		  "canmount=off"
+if is_freebsd; then
+	RW_FS_PROP+=("jailed=on")
+else
+	RW_FS_PROP+=("zoned=on")
+fi
 
 typeset -i i=0
 while (( $i < ${#RW_FS_PROP[*]} )); do
 	log_must zpool create -O ${RW_FS_PROP[$i]} -f $TESTPOOL $DISKS
-	datasetexists $TESTPOOL || \
-		log_fail "zpool create $TESTPOOL fail."
-	propertycheck $TESTPOOL ${RW_FS_PROP[i]} || \
-		log_fail "${RW_FS_PROP[i]} is failed to set."
+	log_must datasetexists $TESTPOOL
+	log_must propertycheck $TESTPOOL ${RW_FS_PROP[i]}
 	log_must zpool destroy $TESTPOOL
 	(( i = i + 1 ))
 done
 
-log_pass "'zpool create -O property=value pool' can successfully create a pool \
-		with correct filesystem property set."
-
+log_pass "'zpool create -O property=value pool' can successfully create a pool" \
+		"with correct filesystem property set."

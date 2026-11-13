@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -27,6 +18,7 @@
 
 #
 # Copyright (c) 2012, 2016 by Delphix. All rights reserved.
+# Copyright (c) 2018 Datto Inc.
 #
 
 . $STF_SUITE/include/libtest.shlib
@@ -106,24 +98,11 @@ log_note "mkbusy $mntpt/$TESTFILE0 (pidlist: $pidlist)"
 [[ -z $pidlist ]] && log_fail "Failure from mkbusy"
 negative_test "-R -rR" $CTR
 
-#
-# Checking the outcome of the test above is tricky, because the order in
-# which datasets are destroyed is not deterministic. Both $FS and $VOL are
-# busy, and the remaining datasets will be different depending on whether we
-# tried (and failed) to delete $FS or $VOL first.
-
-# The following datasets will exist independent of the order
+# The following busy datasets will still exist
 check_dataset datasetexists $CTR $FS $VOL
 
-if datasetexists $VOLSNAP && datasetnonexists $FSSNAP; then
-	# The recursive destroy failed on $FS
-	check_dataset datasetnonexists $FSSNAP $FSCLONE
-	check_dataset datasetexists $VOLSNAP $VOLCLONE
-elif datasetexists $FSSNAP && datasetnonexists $VOLSNAP; then
-	# The recursive destroy failed on $VOL
-	check_dataset datasetnonexists $VOLSNAP $VOLCLONE
-	check_dataset datasetexists $FSSNAP $FSCLONE
-else
+# The following datasets will not exist because of best-effort recursive destroy
+if datasetexists $VOLSNAP || datasetexists $FSSNAP; then
 	log_must zfs list -rtall
 	log_fail "Unexpected datasets remaining"
 fi
@@ -138,8 +117,7 @@ negative_test "-R -rR" $FS
 check_dataset datasetexists $CTR $FS $VOL $VOLSNAP $VOLCLONE
 check_dataset datasetnonexists $FSSNAP $FSCLONE
 
-log_must kill $pidlist
-log_mustnot pgrep -fl mkbusy
+kill_mkbusy "$pidlist"
 pidlist=""
 
 #
@@ -157,15 +135,9 @@ if is_global_zone; then
 	check_dataset datasetexists $CTR $VOL
 	check_dataset datasetnonexists $VOLSNAP $VOLCLONE
 
-	# Here again, the non-determinism of destroy order is a factor. $FS,
-	# $FSSNAP and $FSCLONE will still exist here iff we attempted to destroy
-	# $VOL (and failed) first. So check that either all of the datasets are
-	# present, or they're all gone.
-	if datasetexists $FS; then
-		check_dataset datasetexists $FS $FSSNAP $FSCLONE
-	else
-		check_dataset datasetnonexists $FS $FSSNAP $FSCLONE
-	fi
+	# Due to recursive destroy being a best-effort operation,
+	# all of the non-busy datasets below should be gone now.
+	check_dataset datasetnonexists $FS $FSSNAP $FSCLONE
 fi
 
 #
@@ -181,8 +153,7 @@ if is_global_zone; then
 	check_dataset datasetnonexists $VOLSNAP $VOLCLONE
 fi
 
-log_must kill $pidlist
-log_mustnot pgrep -fl mkbusy
+kill_mkbusy "$pidlist"
 pidlist=""
 
 #
@@ -214,8 +185,7 @@ for option in -R -rR ; do
 	fi
 done
 
-log_must kill $pidlist
-log_mustnot pgrep -fl mkbusy
+kill_mkbusy "$pidlist"
 pidlist=""
 
 log_pass "zfs destroy -f|-r|-rf|-R|-rR <dataset>' failed in different " \

@@ -1,22 +1,13 @@
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -26,20 +17,26 @@
 
 #
 # Copyright (c) 2013, 2016 by Delphix. All rights reserved.
+# Copyright 2026 Oxide Computer Company
 #
 
 . $STF_SUITE/include/libtest.shlib
 . $STF_SUITE/tests/functional/slog/slog.cfg
 
+function setup
+{
+	log_must rm -rf $VDIR $VDIR2
+	log_must mkdir -p $VDIR $VDIR2
+	log_must truncate -s $MINVDEVSIZE $VDEV $SDEV $LDEV $VDEV2 $SDEV2 $LDEV2
+
+	return 0
+}
+
 function cleanup
 {
-	if datasetexists $TESTPOOL ; then
-		log_must zpool destroy -f $TESTPOOL
-	fi
-	if datasetexists $TESTPOOL2 ; then
-		log_must zpool destroy -f $TESTPOOL2
-	fi
-	rm -rf $TESTDIR
+	poolexists $TESTPOOL && destroy_pool $TESTPOOL
+	poolexists $TESTPOOL2 && destroy_pool $TESTPOOL2
+	rm -rf $TESTDIR $VDIR $VDIR2
 }
 
 #
@@ -96,7 +93,7 @@ function verify_slog_device
 	#
 	# mirror:/disks/d ONLINE mirror:/disks/e ONLINE stripe:/disks/f ONLINE
 	#
-	set -A dev_stat_tab $(zpool status -v $pool | nawk 'BEGIN {start=0} \
+	set -A dev_stat_tab $(zpool status -v $pool | awk 'BEGIN {start=0} \
 				/\tlogs/ {start=1}
 				/\tmirror/ || /\tspares/ || /^$/ {start=0}
 				(start==1) && /\t  (\/|[a-zA-Z])/ \
@@ -149,4 +146,33 @@ function verify_slog_device
 	log_note "Can not find device: $device"
 
 	return 1
+}
+
+#
+# Lose log block $2 (counting from 1) of dataset $1, as if the system had
+# crashed before it reached disk: export the pool and overwrite the block
+# with zeros on each of the log devices in $LDEV, so that the log ends
+# before it both when it is claimed and when it is replayed.
+#
+function lose_zil_block
+{
+	typeset ds=$1
+	typeset n=$2
+	typeset dva off size dev
+
+	# zdb prints xattr values (e.g. SELinux labels) raw, NUL included;
+	# -a keeps grep from taking that for binary output.
+	dva=$(zdb -ivvvvv $ds | grep -a "Block seqno" | \
+	    sed -n "${n}s/.*DVA\[0\]=<\([0-9a-f:]*\)>.*/\1/p")
+	[[ -n $dva ]] || log_fail "$ds has no log block $n"
+	# A DVA is vdev:offset:asize, in hex.  The offset is from the end of
+	# the 4M of labels and boot block at the start of the device.
+	dva=${dva#*:}
+	off=$(( (16#${dva%%:*} + 4 * 1024 * 1024) / 512 ))
+	size=$(( 16#${dva#*:} / 512 ))
+	log_must_busy zpool export ${ds%%/*}
+	for dev in $LDEV; do
+		log_must dd if=/dev/zero of=$dev bs=512 seek=$off count=$size \
+		    conv=notrunc
+	done
 }

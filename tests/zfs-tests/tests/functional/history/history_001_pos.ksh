@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -59,7 +50,6 @@ log_assert "Verify zpool sub-commands which modify state are logged."
 log_onexit cleanup
 
 mntpnt=$(get_prop mountpoint $TESTPOOL)
-(( $? != 0)) && log_fail "get_prop($TESTPOOL mountpoint)"
 VDEV1=$mntpnt/vdev1; VDEV2=$mntpnt/vdev2;
 VDEV3=$mntpnt/vdev3; VDEV4=$mntpnt/vdev4;
 
@@ -111,11 +101,11 @@ done
 
 run_and_verify -p "$MPOOL" "zpool split $MPOOL ${MPOOL}_split"
 
-import_dir=/var/tmp/import_dir.$$
+import_dir=$TEST_BASE_DIR/import_dir.$$
 log_must mkdir $import_dir
 log_must cp $STF_SUITE/tests/functional/history/zfs-pool-v4.dat.Z $import_dir
-log_must uncompress $import_dir/zfs-pool-v4.dat.Z
-upgrade_pool=$(zpool import -d $import_dir | grep "pool:" | awk '{print $2}')
+log_must gunzip $import_dir/zfs-pool-v4.dat.Z
+upgrade_pool=$(zpool import -d $import_dir | awk '/pool:/ { print $2 }')
 log_must zpool import -d $import_dir $upgrade_pool
 run_and_verify -p "$upgrade_pool" "zpool upgrade $upgrade_pool"
 

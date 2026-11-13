@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -49,7 +40,7 @@ function cleanup
 	poolexists $migratedpoolname &&  \
 		log_must zpool destroy -f $migratedpoolname
 
-	[[ -d $import_dir ]] && rm -rf $import_dir
+	rm -rf $import_dir
 }
 
 log_assert "Verify command history moves with migrated pool."
@@ -62,7 +53,7 @@ migratedpoolname=$MIGRATEDPOOLNAME
 typeset -i RET=1
 typeset -i linenum=0
 
-[[ ! -d $import_dir ]] && log_must mkdir $import_dir
+[[ ! -d $import_dir ]] && log_must mkdir -p $import_dir
 
 # We test the migrations on both uniform platform and cross platform
 for arch in "i386" "sparc"; do
@@ -70,20 +61,17 @@ for arch in "i386" "sparc"; do
 	orig_cmds_f=$import_dir/${arch}.orig_history.txt
 	# remove blank line
 	orig_cmds_f1=$import_dir/${arch}.orig_history_1.txt
-	cat $orig_cmds_f | grep -v "^$" > $orig_cmds_f1
+	grep -v "^$" $orig_cmds_f > $orig_cmds_f1
 
 	log_must cp $tst_dir/${arch}.migratedpool.DAT.Z $import_dir
-	log_must uncompress $import_dir/${arch}.migratedpool.DAT.Z
+	log_must gunzip -f $import_dir/${arch}.migratedpool.DAT.Z
 
 	# destroy the pool with same name, so that import operation succeeds.
 	poolexists $migratedpoolname && \
 	    log_must zpool destroy -f $migratedpoolname
 
 	log_must zpool import -d $import_dir $migratedpoolname
-	TZ=$TIMEZONE zpool history $migratedpoolname | grep -v "^$" \
-	    >$migrated_cmds_f
-	RET=$?
-	(( $RET != 0 )) && log_fail "zpool histroy $migratedpoolname fails."
+	log_must eval "TZ=$TIMEZONE zpool history $migratedpoolname | grep -v \"^\$\" >$migrated_cmds_f"
 
 	# The migrated history file should differ with original history file on
 	# two commands -- 'export' and 'import', which are included in migrated
@@ -92,21 +80,20 @@ for arch in "i386" "sparc"; do
 	# then compare this filtered file with the original history file. They
 	# should be identical at this time.
 	for subcmd in "export" "import"; do
-		grep "$subcmd" $migrated_cmds_f >/dev/null 2>&1
-		RET=$?
-		(( $RET != 0 )) && log_fail "zpool $subcmd is not logged for" \
-		    "the imported pool $migratedpoolname."
+		grep -q "$subcmd" $migrated_cmds_f ||
+			log_fail "zpool $subcmd is not logged for" \
+			    "the imported pool $migratedpoolname."
 	done
 
 	tmpfile=$import_dir/cmds_tmp.$$
-	linenum=`cat $migrated_cmds_f | wc -l`
+	linenum=$(wc -l < $migrated_cmds_f)
 	(( linenum = linenum - 2 ))
 	head -n $linenum $migrated_cmds_f > $tmpfile
 	log_must diff $tmpfile $orig_cmds_f1
 
 	# cleanup for next loop testing
 	log_must zpool destroy -f $migratedpoolname
-	log_must rm -f `ls $import_dir`
+	log_must rm -f $(ls $import_dir)
 done
 
 log_pass "Verify command history moves with migrated pool."

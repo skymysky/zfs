@@ -1,6 +1,5 @@
 #!/bin/ksh -p
-#
-# CDDL HEADER START
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -9,9 +8,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
-#
-# CDDL HEADER END
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -33,13 +30,13 @@
 src_fs=$TESTPOOL/drecvsrc
 temppool=recvtank
 dst_fs=$temppool/drecvdest
-streamfile=/var/tmp/drecvstream.$$
-tpoolfile=/temptank.$$
+streamfile=$TEST_BASE_DIR/drecvstream.$$
+tpoolfile=$TEST_BASE_DIR/temptank.$$
 
 function cleanup
 {
     for fs in $src_fs $dst_fs; do
-        datasetexists $fs && log_must zfs destroy -rf $fs
+        datasetexists $fs && log_must destroy_dataset $fs -rf
     done
     zpool destroy $temppool
     [[ -f $streamfile ]] && log_must rm -f $streamfile
@@ -52,7 +49,7 @@ log_onexit cleanup
 truncate -s 100M $tpoolfile
 log_must zpool create $temppool $tpoolfile
 log_must zfs create $src_fs
-src_mnt=$(get_prop mountpoint $src_fs) || log_fail "get_prop mountpoint $src_fs"
+src_mnt=$(get_prop mountpoint $src_fs)
 
 echo blah > $src_mnt/blah
 zfs snapshot $src_fs@base
@@ -67,6 +64,8 @@ zfs snapshot $src_fs@snap3
 
 log_must eval "zfs send -D -R $src_fs@snap3 > $streamfile"
 log_must eval "zfs receive -v $dst_fs < $streamfile"
+log_must zfs destroy -r $dst_fs
+log_must eval "zstream redup $streamfile | zfs receive -v $dst_fs"
 
 cleanup
 

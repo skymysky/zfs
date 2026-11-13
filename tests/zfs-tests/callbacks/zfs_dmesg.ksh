@@ -1,4 +1,5 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 
 #
 # This file and its contents are supplied under the terms of the
@@ -8,12 +9,13 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
 # Copyright (c) 2016 by Delphix. All rights reserved.
 # Copyright (c) 2017 Lawrence Livermore National Security, LLC.
+# Copyright (c) 2025, Klara, Inc.
 #
 
 # $1: number of lines to output (default: 200)
@@ -23,7 +25,12 @@ echo "================================================================="
 echo " Tailing last $lines lines of dmesg log"
 echo "================================================================="
 
-sudo dmesg | tail -n $lines
+# report and reset afterwards
+dmesg_args="-c"
+if [[ $(uname) = "Linux" ]] ; then
+	dmesg_args="$dmesg_args --time-format=iso"
+fi
+sudo dmesg $dmesg_args | tail -n $lines
 
 echo "================================================================="
 echo " End of dmesg log"

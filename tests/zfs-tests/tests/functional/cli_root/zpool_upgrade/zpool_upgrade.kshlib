@@ -1,22 +1,13 @@
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -49,7 +40,7 @@ function create_old_pool
 	log_note "Creating $pool_name from $pool_files"
 	for pool_file in $pool_files; do
 		log_must bzcat \
-		    $STF_SUITE/tests/functional/cli_root/zpool_upgrade/$pool_file.bz2 \
+		    $STF_SUITE/tests/functional/cli_root/zpool_upgrade/blockfiles/$pool_file.bz2 \
 		    >$TEST_BASE_DIR/$pool_file
 	done
 	log_must zpool import -d $TEST_BASE_DIR $pool_name
@@ -93,9 +84,8 @@ function destroy_upgraded_pool
 	typeset -n pool_files=ZPOOL_VERSION_${vers}_FILES
 	typeset -n pool_name=ZPOOL_VERSION_${vers}_NAME
 
-	if poolexists $pool_name; then
-		log_must zpool destroy $pool_name
-	fi
+	destroy_pool $pool_name
+
 	for file in $pool_files; do
 		rm -f $TEST_BASE_DIR/$file
 	done
@@ -133,28 +123,8 @@ function check_poolversion
 	fi
 
 	# check version using zpool upgrade
-	actual=$(zpool upgrade | grep $pool$ | \
-	    awk '{print $1}' | sed -e 's/ //g')
+	actual=$(zpool upgrade | awk -v p="$pool$" '$0 ~ p {gsub(/ /, "", $1); print $1}')
 	if [[ $actual != $vers ]] ; then
 		log_fail "$pool: zpool reported version $actual, expected $vers"
 	fi
-}
-
-# A simple function to get a random number between two bounds
-# probably not the most efficient for large ranges, but it's okay.
-# Note since we're using $RANDOM, 32767 is the largest number we
-# can accept as the upper bound.
-# $1 lower bound
-# $2 upper bound
-function random
-{
-	typeset min=$1
-	typeset max=$2
-	typeset rand=0
-
-	while [[ $rand -lt $min ]] ; do
-		rand=$(( $RANDOM % $max + 1))
-	done
-
-	echo $rand
 }

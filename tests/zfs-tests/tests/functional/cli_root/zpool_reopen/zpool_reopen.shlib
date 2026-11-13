@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -6,7 +7,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 #
 # Copyright (c) 2017 Open-E, Inc. All Rights Reserved.
@@ -19,30 +20,26 @@
 #
 function clear_labels #disks
 {
+	# zpool resolves the short name and finds a whole disk's partition.
 	for disk in $@; do
-		if ( is_loop_device $disk ) || ( is_mpath_device $disk ); then
-			zpool labelclear -f /dev/$disk
-		else
-			zpool labelclear -f /dev/${disk}1
-		fi
+		zpool labelclear -f $disk
 	done
 }
 
 #
 # Set the REMOVED_DISK and REMOVED_DISK_ID constants for device
-# used for re-plugging. When the disk is loop device use the
-# scsi_debug emulated drive. Otherwise use the real drive.
+# used for re-plugging. When the disk is a SCSI or multipath device
+# use the real drive. Otherwise, e.g. for loop or NVMe devices, use
+# the scsi_debug emulated drive.
 #
 function set_removed_disk
 {
-	if is_loop_device $DISK1; then
-		export REMOVED_DISK=$(get_debug_device)
-		export REMOVED_DISK_ID=$(get_persistent_disk_name $REMOVED_DISK)
-	elif ( is_real_device $DISK1 ) || ( is_mpath_device $DISK1 ); then
+	if is_scsi_device $DISK1 || is_mpath_device $DISK1; then
 		export REMOVED_DISK="$DISK1"
 		export REMOVED_DISK_ID=${devs_id[0]}
 	else
-		log_fail "No drives that supports removal"
+		export REMOVED_DISK=$(get_debug_device)
+		export REMOVED_DISK_ID=$(get_persistent_disk_name $REMOVED_DISK)
 	fi
 }
 
@@ -68,11 +65,11 @@ function wait_for_action #pool timeout function
 {
 	typeset pool=$1
 	typeset -i timeout=$2
-	typeset func=$3
+	typeset funct=$3
 
 	while [ $timeout -gt 0 ]; do
 		(( --timeout ))
-		if ( $func $pool ); then
+		if ( $funct $pool ); then
 			return 0
 		fi
 		sleep 1
@@ -90,19 +87,16 @@ function wait_for_action #pool timeout function
 function wait_for_resilver_start #pool timeout
 {
 	wait_for_action $1 $2 is_pool_resilvering
-	return $?
 }
 
 function wait_for_resilver_end #pool timeout
 {
 	wait_for_action $1 $2 is_pool_resilvered
-	return $?
 }
 
 function wait_for_scrub_end #pool timeout
 {
 	wait_for_action $1 $2 is_pool_scrubbed
-	return $?
 }
 
 #
@@ -111,7 +105,10 @@ function wait_for_scrub_end #pool timeout
 
 function is_scan_restarted #pool
 {
-	typeset pool=$1
-	zpool history -i $pool | grep -q "scan aborted, restarting"
-	return $?
+	zpool history -i $1 | grep -q "scan aborted, restarting"
+}
+
+function is_deferred_scan_started #pool
+{
+	zpool history -i $1 | grep -q "starting deferred resilver"
 }

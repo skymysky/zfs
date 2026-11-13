@@ -1,4 +1,5 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -7,7 +8,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -37,7 +38,7 @@ function log_must_follow # <command>
 	sleep 3
 	kill $pid
 	if [[ $? -ne 0 ]]; then
-		log_fail "'$command' does not work as expected."
+		log_fail "'$command' exited early."
 	else
 		log_note "'$command' works successfully."
 	fi

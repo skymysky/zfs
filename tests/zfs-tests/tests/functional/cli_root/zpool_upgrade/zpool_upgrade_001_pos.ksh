@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -45,7 +36,15 @@
 
 verify_runnable "global"
 
+function cleanup
+{
+	rm -f $versions
+}
+
 log_assert "Executing 'zpool upgrade -v' command succeeds"
+log_onexit cleanup
+
+typeset versions=$TEST_BASE_DIR/zpool-versions.$$
 
 log_must zpool upgrade -v
 
@@ -54,7 +53,7 @@ log_must zpool upgrade -v
 
 log_must eval "zpool upgrade -v | head -1 | grep 'feature flags'"
 
-zpool upgrade -v > /tmp/zpool-versions.$$
+zpool upgrade -v > $versions
 
 #
 # Current output for 'zpool upgrade -v' has different indent space
@@ -64,8 +63,7 @@ zpool upgrade -v > /tmp/zpool-versions.$$
 #
 for version in {1..28}; do
 	log_note "Checking for a description of pool version $version"
-	log_must eval "awk '/^ $version / { print $1 }' /tmp/zpool-versions.$$ | grep $version"
+	log_must eval "awk '/^ $version / { print $1 }' $versions | grep $version"
 done
-rm /tmp/zpool-versions.$$
 
 log_pass "Executing 'zpool upgrade -v' command succeeds"

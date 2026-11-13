@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
@@ -27,6 +18,7 @@
 
 #include <libnvpair.h>
 #include <libzfs.h>
+#include <libzutil.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -39,12 +31,10 @@ extern "C" {
  * Basic utility functions
  */
 void *safe_malloc(size_t);
+void *safe_realloc(void *, size_t);
 void zpool_no_memory(void);
 uint_t num_logs(nvlist_t *nv);
 uint64_t array64_max(uint64_t array[], unsigned int len);
-int isnumber(char *str);
-int highbit64(uint64_t i);
-int lowbit64(uint64_t i);
 
 /*
  * Misc utility functions
@@ -64,23 +54,22 @@ nvlist_t *split_mirror_vdev(zpool_handle_t *zhp, char *newname,
 /*
  * Pool list functions
  */
-int for_each_pool(int, char **, boolean_t unavail, zprop_list_t **,
-    zpool_iter_f, void *);
+int for_each_pool(int, char **, boolean_t unavail, zprop_list_t **, zfs_type_t,
+    boolean_t, zpool_iter_f, void *);
 
 /* Vdev list functions */
-typedef int (*pool_vdev_iter_f)(zpool_handle_t *, nvlist_t *, void *);
 int for_each_vdev(zpool_handle_t *zhp, pool_vdev_iter_f func, void *data);
 
 typedef struct zpool_list zpool_list_t;
 
-zpool_list_t *pool_list_get(int, char **, zprop_list_t **, int *);
-void pool_list_update(zpool_list_t *);
+zpool_list_t *pool_list_get(int, char **, zprop_list_t **, zfs_type_t,
+    boolean_t, int *);
+int pool_list_refresh(zpool_list_t *);
 int pool_list_iter(zpool_list_t *, int unavail, zpool_iter_f, void *);
 void pool_list_free(zpool_list_t *);
 int pool_list_count(zpool_list_t *);
-void pool_list_remove(zpool_list_t *, zpool_handle_t *);
 
-libzfs_handle_t *g_zfs;
+extern libzfs_handle_t *g_zfs;
 
 
 typedef	struct vdev_cmd_data
@@ -104,7 +93,7 @@ typedef struct vdev_cmd_data_list
 	char *cmd;		/* Command to run */
 	unsigned int count;	/* Number of vdev_cmd_data items (vdevs) */
 
-	/* vars to whitelist only certain vdevs, if requested */
+	/* fields used to select only certain vdevs, if requested */
 	libzfs_handle_t *g_zfs;
 	char **vdev_names;
 	int vdev_names_count;
@@ -124,6 +113,21 @@ vdev_cmd_data_list_t *all_pools_for_each_vdev_run(int argc, char **argv,
     int cb_name_flags);
 
 void free_vdev_cmd_data_list(vdev_cmd_data_list_t *vcdl);
+
+void free_vdev_cmd_data(vdev_cmd_data_t *data);
+
+int vdev_run_cmd_simple(char *path, char *cmd);
+
+int check_device(const char *path, boolean_t force,
+    boolean_t isspare, boolean_t iswholedisk);
+boolean_t check_sector_size_database(char *path, int *sector_size);
+void vdev_error(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+int check_file(const char *file, boolean_t force, boolean_t isspare);
+void after_zpool_upgrade(zpool_handle_t *zhp);
+int check_file_generic(const char *file, boolean_t force, boolean_t isspare);
+
+int zpool_power(zpool_handle_t *zhp, char *vdev, boolean_t turn_on);
+int zpool_power_current_state(zpool_handle_t *zhp, char *vdev);
 
 #ifdef	__cplusplus
 }

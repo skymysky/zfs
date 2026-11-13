@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -50,9 +41,7 @@ verify_runnable "both"
 
 function cleanup
 {
-	if datasetexists $rootfs ; then
-		log_must zfs destroy -Rf $rootfs
-	fi
+	datasetexists $rootfs && destroy_dataset $rootfs -Rf
 	log_must zfs create $rootfs
 
 	for file in $output $oldoutput ; do
@@ -66,15 +55,15 @@ log_assert "Executing 'zfs upgrade' command succeeds."
 log_onexit cleanup
 
 rootfs=$TESTPOOL/$TESTFS
-typeset output=/tmp/zfs-versions.$$
-typeset oldoutput=/tmp/zfs-versions-old.$$
+typeset output=$TEST_BASE_DIR/zfs-versions.$$
+typeset oldoutput=$TEST_BASE_DIR/zfs-versions-old.$$
 typeset expect_str1="This system is currently running ZFS filesystem version"
 typeset expect_str2="All filesystems are formatted with the current version"
 typeset expect_str3="The following filesystems are out of date, and can be upgraded"
 typeset -i COUNT OLDCOUNT
 
-zfs upgrade | nawk '$1 ~ "^[0-9]+$" {print $2}'> $oldoutput
-OLDCOUNT=$( wc -l $oldoutput | awk '{print $1}' )
+zfs upgrade | awk '$1 ~ "^[0-9]+$" {print $2}'> $oldoutput
+OLDCOUNT=$(wc -l < $oldoutput)
 
 old_datasets=""
 for version in $ZFS_ALL_VERSIONS ; do
@@ -100,9 +89,9 @@ log_must eval 'zfs upgrade > $output 2>&1'
 
 # we also check that the usage message contains at least a description
 # of the current ZFS version.
-log_must eval 'grep "${expect_str1} $ZFS_VERSION" $output > /dev/null 2>&1'
-zfs upgrade | nawk '$1 ~ "^[0-9]+$" {print $2}'> $output
-COUNT=$( wc -l $output | awk '{print $1}' )
+log_must grep -q "${expect_str1} $ZFS_VERSION" $output
+zfs upgrade | awk '$1 ~ "^[0-9]+$" {print $2}'> $output
+COUNT=$(wc -l < $output)
 
 typeset -i i=0
 for fs in ${old_datasets}; do
@@ -116,24 +105,22 @@ if (( i != COUNT - OLDCOUNT )); then
 fi
 
 for fs in $old_datasets ; do
-	if datasetexists $fs ; then
-		log_must zfs destroy -Rf $fs
-	fi
+	datasetexists $fs && destroy_dataset $fs -Rf
 done
 
 log_must eval 'zfs upgrade > $output 2>&1'
-log_must eval 'grep "${expect_str1} $ZFS_VERSION" $output > /dev/null 2>&1'
+log_must grep -q "${expect_str1} $ZFS_VERSION" $output
 if (( OLDCOUNT == 0 )); then
-	log_must eval 'grep "${expect_str2}" $output > /dev/null 2>&1'
+	log_must grep -q "${expect_str2}" $output
 else
-	log_must eval 'grep "${expect_str3}" $output > /dev/null 2>&1'
+	log_must grep -q "${expect_str3}" $output
 fi
-zfs upgrade | nawk '$1 ~ "^[0-9]+$" {print $2}'> $output
-COUNT=$( wc -l $output | awk '{print $1}' )
+zfs upgrade | awk '$1 ~ "^[0-9]+$" {print $2}'> $output
+COUNT=$(wc -l < $output)
 
 if (( COUNT != OLDCOUNT )); then
 	cat $output
-	log_fail "Unexpect old-version filesystems print out."
+	log_fail "Unexpected old-version filesystems print out."
 fi
 
 log_pass "Executing 'zfs upgrade' command succeeds."

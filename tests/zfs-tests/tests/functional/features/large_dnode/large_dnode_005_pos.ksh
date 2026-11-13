@@ -1,23 +1,19 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
+
 #
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# Copyright (c) 2016 by Lawrence Livermore National Security, LLC.
+# Use is subject to license terms.
 #
 
 . $STF_SUITE/include/libtest.shlib
@@ -35,13 +31,8 @@ TEST_FILEINCR=bar
 
 function cleanup
 {
-	if datasetexists $TEST_SEND_FS ; then
-		log_must zfs destroy -r $TEST_SEND_FS
-	fi
-
-	if datasetexists $TEST_RECV_FS ; then
-		log_must zfs destroy -r $TEST_RECV_FS
-	fi
+	datasetexists $TEST_SEND_FS && destroy_dataset $TEST_SEND_FS -r
+	datasetexists $TEST_RECV_FS && destroy_dataset $TEST_RECV_FS -r
 
 	rm -f $TEST_STREAM
 	rm -f $TEST_STREAMINCR
@@ -54,11 +45,11 @@ log_assert "zfs send stream with large dnodes accepted by new pool"
 log_must zfs create -o dnodesize=1k $TEST_SEND_FS
 log_must touch /$TEST_SEND_FS/$TEST_FILE
 log_must zfs snap $TEST_SNAP
-log_must zfs send $TEST_SNAP > $TEST_STREAM
+log_must eval "zfs send $TEST_SNAP > $TEST_STREAM"
 log_must rm -f /$TEST_SEND_FS/$TEST_FILE
 log_must touch /$TEST_SEND_FS/$TEST_FILEINCR
 log_must zfs snap $TEST_SNAPINCR
-log_must zfs send -i $TEST_SNAP $TEST_SNAPINCR > $TEST_STREAMINCR
+log_must eval "zfs send -i $TEST_SNAP $TEST_SNAPINCR > $TEST_STREAMINCR"
 
 log_must eval "zfs recv $TEST_RECV_FS < $TEST_STREAM"
 inode=$(ls -li /$TEST_RECV_FS/$TEST_FILE | awk '{print $1}')
@@ -68,7 +59,7 @@ if [[ "$dnsize" != "1K" ]]; then
 fi
 
 log_must eval "zfs recv -F $TEST_RECV_FS < $TEST_STREAMINCR"
-log_must diff -r /$TEST_SEND_FS /$TEST_RECV_FS
+log_must directory_diff /$TEST_SEND_FS /$TEST_RECV_FS
 log_must zfs umount $TEST_SEND_FS
 log_must zfs umount $TEST_RECV_FS
 

@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -57,8 +48,8 @@
 #	   Using the various combinations.
 #		- Regular import
 #		- Alternate Root Specified
-#	   It should be succeed with single d/m device upon 'raidz' & 'mirror',
-#	   but failed against 'regular' or more d/m devices.
+#	   It should succeed with single d/m device upon 'raidz', 'mirror',
+#	   'draid' but failed against 'regular' or more d/m devices.
 #	6. If import succeed, verify following is true:
 #		- The pool shows up under 'zpool list'.
 #		- The pool's health should be DEGRADED.
@@ -67,7 +58,16 @@
 
 verify_runnable "global"
 
-set -A vdevs "" "mirror" "raidz"
+# Randomly test a subset of combinations to speed up the test.
+(( rc=RANDOM % 3 ))
+if [[ $rc == 0 ]] ; then
+	set -A vdevs "" "mirror" "raidz"
+elif [[ $rc == 1 ]] ; then
+	set -A vdevs "" "mirror" "draid"
+else
+	set -A vdevs "" "raidz" "draid"
+fi
+
 set -A options "" "-R $ALTER_ROOT"
 
 function cleanup
@@ -89,7 +89,8 @@ function recreate_files
 	log_must rm -rf $DEVICE_DIR/*
 	typeset i=0
 	while (( i < $MAX_NUM )); do
-		log_must mkfile $FILE_SIZE ${DEVICE_DIR}/${DEVICE_FILE}$i
+		log_must rm -f ${DEVICE_DIR}/${DEVICE_FILE}$i
+		log_must truncate -s $FILE_SIZE ${DEVICE_DIR}/${DEVICE_FILE}$i
 		((i += 1))
 	done
 }
@@ -101,7 +102,7 @@ log_assert "Verify that import could handle damaged or missing device."
 CWD=$PWD
 cd $DEVICE_DIR || log_fail "Unable change directory to $DEVICE_DIR"
 
-checksum1=$(sum $MYTESTFILE | awk '{print $1}')
+read -r checksum1 _ < <(cksum $MYTESTFILE)
 
 typeset -i i=0
 typeset -i j=0
@@ -157,6 +158,9 @@ while (( i < ${#vdevs[*]} )); do
 				'raidz')  (( count > 1 )) && \
 						action=log_mustnot
 					;;
+				'draid')  (( count > 1 )) && \
+						action=log_mustnot
+					;;
 				'')  action=log_mustnot
 					;;
 			esac
@@ -186,10 +190,8 @@ while (( i < ${#vdevs[*]} )); do
 			[[ ! -e $basedir/$TESTFILE0 ]] && \
 				log_fail "$basedir/$TESTFILE0 missing after import."
 
-			checksum2=$(sum $basedir/$TESTFILE0 | awk '{print $1}')
-			[[ "$checksum1" != "$checksum2" ]] && \
-				log_fail "Checksums differ ($checksum1 != $checksum2)"
-
+			read -r checksum2 _ < <(cksum $basedir/$TESTFILE0)
+			log_must [ "$checksum1" = "$checksum2" ]
 		done
 
 		((j = j + 1))

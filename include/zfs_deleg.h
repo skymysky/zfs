@@ -1,31 +1,22 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2010 Nexenta Systems, Inc. All rights reserved.
- * Copyright (c) 2013 by Delphix. All rights reserved.
+ * Copyright (c) 2013, 2015 by Delphix. All rights reserved.
  */
 
 #ifndef	_ZFS_DELEG_H
-#define	_ZFS_DELEG_H
+#define	_ZFS_DELEG_H extern __attribute__((visibility("default")))
 
 #include <sys/fs/zfs.h>
 
@@ -54,7 +45,10 @@ typedef enum {
 	ZFS_DELEG_NOTE_PROMOTE,
 	ZFS_DELEG_NOTE_RENAME,
 	ZFS_DELEG_NOTE_SEND,
+	ZFS_DELEG_NOTE_SEND_RAW,
+	ZFS_DELEG_NOTE_SEND_ENCRYPTED,
 	ZFS_DELEG_NOTE_RECEIVE,
+	ZFS_DELEG_NOTE_RECEIVE_APPEND,
 	ZFS_DELEG_NOTE_ALLOW,
 	ZFS_DELEG_NOTE_USERPROP,
 	ZFS_DELEG_NOTE_MOUNT,
@@ -73,20 +67,24 @@ typedef enum {
 	ZFS_DELEG_NOTE_BOOKMARK,
 	ZFS_DELEG_NOTE_LOAD_KEY,
 	ZFS_DELEG_NOTE_CHANGE_KEY,
+	ZFS_DELEG_NOTE_PROJECTUSED,
+	ZFS_DELEG_NOTE_PROJECTQUOTA,
+	ZFS_DELEG_NOTE_PROJECTOBJUSED,
+	ZFS_DELEG_NOTE_PROJECTOBJQUOTA,
 	ZFS_DELEG_NOTE_NONE
 } zfs_deleg_note_t;
 
 typedef struct zfs_deleg_perm_tab {
-	char *z_perm;
+	const char *z_perm;
 	zfs_deleg_note_t z_note;
 } zfs_deleg_perm_tab_t;
 
-extern zfs_deleg_perm_tab_t zfs_deleg_perm_tab[];
+_ZFS_DELEG_H const zfs_deleg_perm_tab_t zfs_deleg_perm_tab[];
 
-int zfs_deleg_verify_nvlist(nvlist_t *nvlist);
-void zfs_deleg_whokey(char *attr, zfs_deleg_who_type_t type,
+_ZFS_DELEG_H int zfs_deleg_verify_nvlist(nvlist_t *nvlist);
+_ZFS_DELEG_H void zfs_deleg_whokey(char *attr, zfs_deleg_who_type_t type,
     char checkflag, void *data);
-const char *zfs_deleg_canonicalize_perm(const char *perm);
+_ZFS_DELEG_H const char *zfs_deleg_canonicalize_perm(const char *perm);
 
 #ifdef	__cplusplus
 }

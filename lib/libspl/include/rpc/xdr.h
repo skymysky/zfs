@@ -1,23 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License, Version 1.0 only
- * (the "License").  You may not use this file except in compliance
- * with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  *
  * Copyright 2005 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
@@ -32,27 +22,21 @@
 #ifndef LIBSPL_RPC_XDR_H
 #define	LIBSPL_RPC_XDR_H
 
-/*
- * When available prefer libtirpc for xdr functionality.  This library is
- * mandatory when compiling with musl libc because it does not provide xdr.
- */
-#if defined(HAVE_LIBTIRPC)
+#include_next <rpc/xdr.h>
 
-#include <tirpc/rpc/xdr.h>
-#ifdef xdr_control
+#ifdef xdr_control /* if e.g. using tirpc */
 #undef xdr_control
 #endif
 
-#else
-#include_next <rpc/xdr.h>
-#endif /* HAVE_LIBTIRPC */
-
 #define	XDR_GET_BYTES_AVAIL 1
 
-typedef struct xdr_bytesrec {
+#ifndef HAVE_XDR_BYTESREC
+struct xdr_bytesrec {
 	bool_t xc_is_last_record;
 	size_t xc_num_avail;
-} xdr_bytesrec_t;
+};
+#endif
+typedef struct xdr_bytesrec  xdr_bytesrec_t;
 
 /*
  * This functionality is not required and is disabled in user space.

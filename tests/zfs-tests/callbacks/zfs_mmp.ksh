@@ -1,4 +1,5 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 
 #
 # This file and its contents are supplied under the terms of the
@@ -8,7 +9,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -18,7 +19,7 @@
 
 # $1: number of lines to output (default: 40)
 typeset lines=${1:-40}
-typeset history=$(cat /sys/module/zfs/parameters/zfs_multihost_history)
+typeset history=$(</sys/module/zfs/parameters/zfs_multihost_history)
 
 if [ $history -eq 0 ]; then
 	exit
@@ -30,6 +31,7 @@ for f in /proc/spl/kstat/zfs/*/multihost; do
 	echo "================================================================="
 
 	sudo tail -n $lines $f
+	sudo sh -c "echo > $f"
 done
 
 echo "================================================================="

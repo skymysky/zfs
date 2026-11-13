@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -48,37 +39,32 @@ verify_runnable "global"
 
 function cleanup
 {
-        poolexists $TOOSMALL && destroy_pool $TOOSMALL
-        poolexists $TESTPOOL1 && destroy_pool $TESTPOOL1
+	typeset pool
 
-        poolexists $TESTPOOL && destroy_pool $TESTPOOL
+	for pool in $TOOSMALL $TESTPOOL1 $TESTPOOL; do
+		poolexists $pool && destroy_pool $pool
+	done
 
-	[[ -d $TESTDIR ]] && rm -rf $TESTDIR
-
-	partition_disk $SIZE $disk 6
+	rm -rf $TESTDIR
 }
 log_onexit cleanup
 
-if [[ -n $DISK ]]; then
-        disk=$DISK
-else
-        disk=$DISK0
-fi
-
-create_pool $TESTPOOL $disk
+create_pool $TESTPOOL $DISK0
 log_must zfs create $TESTPOOL/$TESTFS
 log_must zfs set mountpoint=$TESTDIR $TESTPOOL/$TESTFS
 
 typeset -l devsize=$(($SPA_MINDEVSIZE - 1024 * 1024))
-for files in $TESTDIR/file1 $TESTDIR/file2
+for files in $TESTDIR/file1 $TESTDIR/file2 $TESTDIR/file3
 do
-	log_must mkfile $devsize $files
+	log_must truncate -s $devsize $files
 done
 
 set -A args \
 	"$TOOSMALL $TESTDIR/file1" "$TESTPOOL1 $TESTDIR/file1 $TESTDIR/file2" \
         "$TOOSMALL mirror $TESTDIR/file1 $TESTDIR/file2" \
-	"$TOOSMALL raidz $TESTDIR/file1 $TESTDIR/file2"
+	"$TOOSMALL raidz $TESTDIR/file1 $TESTDIR/file2" \
+	"$TOOSMALL anymirror0 $TESTDIR/file1" \
+	"$TOOSMALL draid $TESTDIR/file1 $TESTDIR/file2 $TESTDIR/file3"
 
 typeset -i i=0
 while [[ $i -lt ${#args[*]} ]]; do

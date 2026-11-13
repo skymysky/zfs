@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -38,7 +29,7 @@
 #
 # STRATEGY:
 #	1. Create pool, volume & snap
-#	2. Verify 'zpool history' can cope with incorret arguments.
+#	2. Verify 'zpool history' can cope with incorrect arguments.
 #
 
 verify_runnable "global"
@@ -51,8 +42,8 @@ set -A neg_opt "$TESTPOOL/$TESTCTR" "$TESTPOOL/$TESTVOL" "-t $TESTPOOL" \
 
 function cleanup
 {
-	datasetexists $clone && log_must zfs destroy $clone
-	datasetexists $snap && log_must zfs destroy $snap
+	datasetexists $clone && destroy_dataset $clone
+	datasetexists $snap && destroy_dataset $snap
 }
 
 log_assert "Verify 'zpool history' can deal with non-existent pools and " \

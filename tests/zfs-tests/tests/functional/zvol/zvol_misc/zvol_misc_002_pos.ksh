@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -44,21 +35,16 @@
 
 verify_runnable "global"
 
-if is_32bit; then
-	log_unsupported "Test case runs slowly on 32 bit"
-fi
-
 volsize=$(zfs get -H -o value volsize $TESTPOOL/$TESTVOL)
 
 function cleanup
 {
-	snapexists $TESTPOOL/$TESTVOL@snap && \
-		zfs destroy $TESTPOOL/$TESTVOL@snap
+	snapexists $TESTPOOL/$TESTVOL@snap &&
+		destroy_dataset $TESTPOOL/$TESTVOL@snap
 
-	ismounted $TESTDIR $NEWFS_DEFAULT_FS
-	(( $? == 0 )) && log_must umount $TESTDIR
+	ismounted $TESTDIR $NEWFS_DEFAULT_FS &&
+		log_must umount $TESTDIR
 
-	[[ -e $TESTDIR ]] && rm -rf $TESTDIR
 	zfs set volsize=$volsize $TESTPOOL/$TESTVOL
 }
 
@@ -71,27 +57,20 @@ NUM_WRITES=40
 
 log_must zfs set volsize=128m $TESTPOOL/$TESTVOL
 
-echo "y" | newfs -v ${ZVOL_RDEVDIR}/$TESTPOOL/$TESTVOL >/dev/null 2>&1
-(( $? != 0 )) && log_fail "Unable to newfs(1M) $TESTPOOL/$TESTVOL"
+log_must new_fs ${ZVOL_RDEVDIR}/$TESTPOOL/$TESTVOL
 
-log_must mkdir $TESTDIR
 log_must mount ${ZVOL_DEVDIR}/$TESTPOOL/$TESTVOL $TESTDIR
 
 typeset -i fn=0
 typeset -i retval=0
 
-while (( 1 )); do
-	file_write -o create -f $TESTDIR/testfile$$.$fn \
-	    -b $BLOCKSZ -c $NUM_WRITES
-	retval=$?
-	if (( $retval != 0 )); then
-		break
-	fi
+while file_write -o create -f $TESTDIR/testfile$$.$fn \
+	    -b $BLOCKSZ -c $NUM_WRITES; do
 	(( fn = fn + 1 ))
 done
 
-if is_linux; then
-	log_must sync
+if is_linux || is_freebsd ; then
+	sync_all_pools
 else
 	log_must lockfs -f $TESTDIR
 fi
@@ -111,7 +90,6 @@ if [ $retval -ne 0 ] ; then
 		# e2fsprogs-1.43.3 (Fedora 25 and older): returns 4
 		# e2fsprogs-1.43.4 (Fedora 26): returns 8
 		#
-		# https://github.com/zfsonlinux/zfs/issues/6297
 		if [ $retval -ne 4 -a $retval -ne 8 ] ; then
 			log_fail "fsck exited with wrong value $retval"
 		fi

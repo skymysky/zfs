@@ -1,26 +1,18 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2018 by Delphix. All rights reserved.
+ * Copyright 2026 Oxide Computer Company
  */
 
 /* Portions Copyright 2010 Robert Milkowski */
@@ -36,19 +28,57 @@ extern "C" {
 #endif
 
 /*
- * Possbile states for a given lwb structure. An lwb will start out in
- * the "closed" state, and then transition to the "opened" state via a
- * call to zil_lwb_write_open(). After the lwb is "open", it can
- * transition into the "issued" state via zil_lwb_write_issue(). After
- * the lwb's zio completes, and the vdev's are flushed, the lwb will
- * transition into the "done" state via zil_lwb_write_done(), and the
- * structure eventually freed.
+ * Possible states for a given lwb structure.
+ *
+ * An lwb will start out in the "new" state, and transition to the "opened"
+ * state via a call to zil_lwb_write_open() on first itx assignment.  When
+ * transitioning from "new" to "opened" the zilog's "zl_issuer_lock" and
+ * LWB's "lwb_lock" must be held.
+ *
+ * After the lwb is "opened", it can be assigned number of itxs and transition
+ * into the "closed" state via zil_lwb_write_close() when full or on timeout.
+ * When transitioning from "opened" to "closed" the zilog's "zl_issuer_lock"
+ * must be held.  New lwb allocation also takes "zl_lock" to protect the list.
+ *
+ * After the lwb is "closed", it can transition into the "ready" state via
+ * zil_lwb_write_issue().  "zl_lock" must be held when making this transition.
+ * Since it is done by the same thread, "zl_issuer_lock" is not needed.
+ *
+ * When lwb in "ready" state receives its block pointer, it can transition to
+ * "issued". "zl_lock" must be held when making this transition.
+ *
+ * After the lwb's write zio completes, it transitions into the "write
+ * done" state via zil_lwb_write_done(); and then into the "flush done"
+ * state via zil_lwb_flush_vdevs_done(). When transitioning from
+ * "issued" to "write done", and then from "write done" to "flush done",
+ * the zilog's "zl_lock" must be held, *not* the "zl_issuer_lock".
+ *
+ * The zilog's "zl_issuer_lock" can become heavily contended in certain
+ * workloads, so we specifically avoid acquiring that lock when
+ * transitioning an lwb from "issued" to "done". This allows us to avoid
+ * having to acquire the "zl_issuer_lock" for each lwb ZIO completion,
+ * which would have added more lock contention on an already heavily
+ * contended lock.
+ *
+ * Additionally, correctness when reading an lwb's state is often
+ * achieved by exploiting the fact that these state transitions occur in
+ * this specific order; i.e. "new" to "opened" to "closed" to "ready" to
+ * "issued" to "write_done" and finally "flush_done".
+ *
+ * Thus, if an lwb is in the "new" or "opened" state, holding the
+ * "zl_issuer_lock" will prevent a concurrent thread from transitioning
+ * that lwb to the "closed" state. Likewise, if an lwb is already in the
+ * "ready" state, holding the "zl_lock" will prevent a concurrent thread
+ * from transitioning that lwb to the "issued" state.
  */
 typedef enum {
-    LWB_STATE_CLOSED,
+    LWB_STATE_NEW,
     LWB_STATE_OPENED,
+    LWB_STATE_CLOSED,
+    LWB_STATE_READY,
     LWB_STATE_ISSUED,
-    LWB_STATE_DONE,
+    LWB_STATE_WRITE_DONE,
+    LWB_STATE_FLUSH_DONE,
     LWB_NUM_STATES
 } lwb_state_t;
 
@@ -61,25 +91,37 @@ typedef enum {
  * holding the "zl_issuer_lock". After the lwb is issued, the zilog's
  * "zl_lock" is used to protect the lwb against concurrent access.
  */
+typedef enum {
+	LWB_FLAG_SLIM =		(1<<0),	/* log block has slim format */
+	LWB_FLAG_SLOG =		(1<<1),	/* lwb_blk is on SLOG device */
+	LWB_FLAG_CRASHED =	(1<<2),	/* lwb is on the crash list */
+} lwb_flag_t;
+
 typedef struct lwb {
 	zilog_t		*lwb_zilog;	/* back pointer to log struct */
 	blkptr_t	lwb_blk;	/* on disk address of this log blk */
-	boolean_t	lwb_fastwrite;	/* is blk marked for fastwrite? */
-	boolean_t	lwb_slog;	/* lwb_blk is on SLOG device */
+	lwb_flag_t	lwb_flags;	/* extra info about this lwb */
+	int		lwb_error;	/* log block allocation error */
+	int		lwb_nmax;	/* max bytes in the buffer */
 	int		lwb_nused;	/* # used bytes in buffer */
+	int		lwb_nfilled;	/* # filled bytes in buffer */
 	int		lwb_sz;		/* size of block and buffer */
+	int		lwb_min_sz;	/* min size for range allocation */
 	lwb_state_t	lwb_state;	/* the state of this lwb */
 	char		*lwb_buf;	/* log write buffer */
+	zio_t		*lwb_child_zio;	/* parent zio for children */
 	zio_t		*lwb_write_zio;	/* zio for the lwb buffer */
 	zio_t		*lwb_root_zio;	/* root zio for lwb write and flushes */
-	dmu_tx_t	*lwb_tx;	/* tx for log block allocation */
+	hrtime_t	lwb_issued_timestamp; /* when was the lwb issued? */
+	uint64_t	lwb_issued_txg;	/* the txg when the write is issued */
+	uint64_t	lwb_alloc_txg;	/* the txg when lwb_blk is allocated */
 	uint64_t	lwb_max_txg;	/* highest txg in this lwb */
 	list_node_t	lwb_node;	/* zilog->zl_lwb_list linkage */
+	list_node_t	lwb_issue_node;	/* linkage of lwbs ready for issue */
 	list_t		lwb_itxs;	/* list of itx's */
 	list_t		lwb_waiters;	/* list of zil_commit_waiter's */
 	avl_tree_t	lwb_vdev_tree;	/* vdevs to flush after lwb write */
-	kmutex_t	lwb_vdev_lock;	/* protects lwb_vdev_tree */
-	hrtime_t	lwb_issued_timestamp; /* when was the lwb issued? */
+	kmutex_t	lwb_lock;	/* protects lwb_vdev_tree and size */
 } lwb_t;
 
 /*
@@ -104,7 +146,7 @@ typedef struct zil_commit_waiter {
 	list_node_t	zcw_node;	/* linkage in lwb_t:lwb_waiter list */
 	lwb_t		*zcw_lwb;	/* back pointer to lwb when linked */
 	boolean_t	zcw_done;	/* B_TRUE when "done", else B_FALSE */
-	int		zcw_zio_error;	/* contains the zio io_error value */
+	int		zcw_error;	/* result to return from zil_commit() */
 } zil_commit_waiter_t;
 
 /*
@@ -137,7 +179,7 @@ typedef struct zil_vdev_node {
 	avl_node_t	zv_node;	/* AVL tree linkage */
 } zil_vdev_node_t;
 
-#define	ZIL_PREV_BLKS 16
+#define	ZIL_BURSTS 8
 
 /*
  * Stable storage intent log management structure.  One per dataset.
@@ -153,6 +195,7 @@ struct zilog {
 	hrtime_t	zl_last_lwb_latency; /* zio latency of last lwb done */
 	uint64_t	zl_lr_seq;	/* on-disk log record sequence number */
 	uint64_t	zl_commit_lr_seq; /* last committed on-disk lr seq */
+	uint64_t	zl_lwb_error_txg; /* issue txg of last failed lwb */
 	uint64_t	zl_destroy_txg;	/* txg of last zil_destroy() */
 	uint64_t	zl_replayed_seq[TXG_SIZE]; /* last replayed rec seq */
 	uint64_t	zl_replaying_seq; /* current replay seq number */
@@ -172,42 +215,47 @@ struct zilog {
 	uint64_t	zl_parse_lr_count; /* number of log records parsed */
 	itxg_t		zl_itxg[TXG_SIZE]; /* intent log txg chains */
 	list_t		zl_itx_commit_list; /* itx list to be committed */
-	uint64_t	zl_cur_used;	/* current commit log size used */
+	uint64_t	zl_cur_size;	/* current burst full size */
+	uint64_t	zl_cur_left;	/* current burst remaining size */
+	uint64_t	zl_cur_max;	/* biggest record in current burst */
 	list_t		zl_lwb_list;	/* in-flight log write list */
+	list_t		zl_lwb_crash_list; /* log writes in-flight at crash */
 	avl_tree_t	zl_bp_tree;	/* track bps during log parse */
+	boolean_t	zl_replay_write2; /* replaying a log with TX_WRITE2 */
 	clock_t		zl_replay_time;	/* lbolt of when replay started */
 	uint64_t	zl_replay_blks;	/* number of log blocks replayed */
 	zil_header_t	zl_old_header;	/* debugging aid */
-	uint_t		zl_prev_blks[ZIL_PREV_BLKS]; /* size - sector rounded */
+	uint_t		zl_parallel;	/* workload is multi-threaded */
 	uint_t		zl_prev_rotor;	/* rotor for zl_prev[] */
+	uint_t		zl_prev_opt[ZIL_BURSTS]; /* optimal block size */
+	uint_t		zl_prev_min[ZIL_BURSTS]; /* minimal first block size */
 	txg_node_t	zl_dirty_link;	/* protected by dp_dirty_zilogs list */
 	uint64_t	zl_dirty_max_txg; /* highest txg used to dirty zilog */
+
+	kmutex_t	zl_lwb_io_lock; /* protect following members */
+	uint64_t	zl_lwb_inflight[TXG_SIZE]; /* io issued, but not done */
+	kcondvar_t	zl_lwb_io_cv;	/* signal when the flush is done */
+	uint64_t	zl_lwb_max_issued_txg; /* max txg when lwb io issued */
+
+	/*
+	 * Max block size for this ZIL.  Note that this can not be changed
+	 * while the ZIL is in use because consumers (ZPL/zvol) need to take
+	 * this into account when deciding between WR_COPIED and WR_NEED_COPY
+	 * (see zil_max_copied_data()).
+	 */
+	uint64_t	zl_max_block_size;
+
+	/* After crash, txg to restart zil */
+	uint64_t	zl_restart_txg;
+
+	/* Pointer for per dataset zil sums */
+	zil_sums_t *zl_sums;
 };
 
 typedef struct zil_bp_node {
 	dva_t		zn_dva;
 	avl_node_t	zn_node;
 } zil_bp_node_t;
-
-/*
- * Maximum amount of write data that can be put into single log block.
- */
-#define	ZIL_MAX_LOG_DATA (SPA_OLD_MAXBLOCKSIZE - sizeof (zil_chain_t) - \
-    sizeof (lr_write_t))
-
-/*
- * Maximum amount of log space we agree to waste to reduce number of
- * WR_NEED_COPY chunks to reduce zl_get_data() overhead (~12%).
- */
-#define	ZIL_MAX_WASTE_SPACE (ZIL_MAX_LOG_DATA / 8)
-
-/*
- * Maximum amount of write data for WR_COPIED.  Fall back to WR_NEED_COPY
- * as more space efficient if we can't fit at least two log records into
- * maximum sized log block.
- */
-#define	ZIL_MAX_COPIED_DATA ((SPA_OLD_MAXBLOCKSIZE - \
-    sizeof (zil_chain_t)) / 2 - sizeof (lr_write_t))
 
 #ifdef	__cplusplus
 }

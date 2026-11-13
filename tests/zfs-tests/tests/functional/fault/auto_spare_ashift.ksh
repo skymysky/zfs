@@ -1,7 +1,6 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 
-#
-# CDDL HEADER START
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -10,9 +9,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
-#
-# CDDL HEADER END
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -60,7 +57,7 @@ FAIL_DEVICE="$TEST_BASE_DIR/fail-dev"
 
 # 1. Create a pool from 512b devices and set "ashift" pool property accordingly
 for vdev in $SAFE_DEVICE $FAIL_DEVICE; do
-	truncate -s $SPA_MINDEVSIZE $vdev
+	truncate -s $MINVDEVSIZE $vdev
 done
 log_must zpool create -f $TESTPOOL mirror $SAFE_DEVICE $FAIL_DEVICE
 # NOTE: file VDEVs should be added as 512b devices, verify this "just in case"
@@ -71,7 +68,7 @@ log_must zpool set ashift=9 $TESTPOOL
 
 # 2. Add one 512e spare device (4Kn would generate IO errors on replace)
 # NOTE: must be larger than the existing 512b devices, add 32m of fudge
-load_scsi_debug $(($SPA_MINDEVSIZE/1024/1024+32)) $SDHOSTS $SDTGTS $SDLUNS '512e'
+load_scsi_debug $(($MINVDEVSIZE/1024/1024+32)) $SDHOSTS $SDTGTS $SDLUNS '512e'
 SPARE_DEVICE=$(get_debug_device)
 log_must_busy zpool add $TESTPOOL spare $SPARE_DEVICE
 

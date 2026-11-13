@@ -1,31 +1,23 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
  *
  * Copyright (c) 2016, Intel Corporation.
+ * Copyright (c) 2023, Klara Inc.
  */
 
 /*
- * This file imlements the minimal FMD module API required to support the
+ * This file implements the minimal FMD module API required to support the
  * fault logic modules in ZED. This support includes module registration,
  * memory allocation, module property accessors, basic case management,
  * one-shot timers and SERD engines.
@@ -38,7 +30,7 @@
 #include <sys/fm/protocol.h>
 #include <uuid/uuid.h>
 #include <signal.h>
-#include <strings.h>
+#include <string.h>
 #include <time.h>
 
 #include "fmd_api.h"
@@ -72,24 +64,6 @@ fmd_module_t	zfs_retire_module;
 fmd_module_t	zfs_diagnosis_module;
 
 /*
- * Enable a reasonable set of defaults for libumem debugging on DEBUG builds.
- */
-
-#ifdef DEBUG
-const char *
-_umem_debug_init(void)
-{
-	return ("default,verbose"); /* $UMEM_DEBUG setting */
-}
-
-const char *
-_umem_logging_init(void)
-{
-	return ("fail,contents"); /* $UMEM_LOGGING setting */
-}
-#endif
-
-/*
  * Register a module with fmd and finish module initialization.
  * Returns an integer indicating whether it succeeded (zero) or
  * failed (non-zero).
@@ -97,6 +71,7 @@ _umem_logging_init(void)
 int
 fmd_hdl_register(fmd_hdl_t *hdl, int version, const fmd_hdl_info_t *mip)
 {
+	(void) version;
 	fmd_module_t *mp = (fmd_module_t *)hdl;
 
 	mp->mod_info = mip;
@@ -179,19 +154,22 @@ fmd_hdl_getspecific(fmd_hdl_t *hdl)
 void *
 fmd_hdl_alloc(fmd_hdl_t *hdl, size_t size, int flags)
 {
-	return (umem_alloc(size, flags));
+	(void) hdl;
+	return (kmem_alloc(size, flags));
 }
 
 void *
 fmd_hdl_zalloc(fmd_hdl_t *hdl, size_t size, int flags)
 {
-	return (umem_zalloc(size, flags));
+	(void) hdl;
+	return (kmem_zalloc(size, flags));
 }
 
 void
 fmd_hdl_free(fmd_hdl_t *hdl, void *data, size_t size)
 {
-	umem_free(data, size);
+	(void) hdl;
+	kmem_free(data, size);
 }
 
 /*
@@ -217,6 +195,8 @@ fmd_hdl_debug(fmd_hdl_t *hdl, const char *format, ...)
 int32_t
 fmd_prop_get_int32(fmd_hdl_t *hdl, const char *name)
 {
+	(void) hdl;
+
 	/*
 	 * These can be looked up in mp->modinfo->fmdi_props
 	 * For now we just hard code for phase 2. In the
@@ -224,26 +204,6 @@ fmd_prop_get_int32(fmd_hdl_t *hdl, const char *name)
 	 */
 	if (strcmp(name, "spare_on_remove") == 0)
 		return (1);
-
-	if (strcmp(name, "io_N") == 0 || strcmp(name, "checksum_N") == 0)
-		return (10);	/* N = 10 events */
-
-	return (0);
-}
-
-int64_t
-fmd_prop_get_int64(fmd_hdl_t *hdl, const char *name)
-{
-	/*
-	 * These can be looked up in mp->modinfo->fmdi_props
-	 * For now we just hard code for phase 2. In the
-	 * future, there can be a ZED based override.
-	 */
-	if (strcmp(name, "remove_timeout") == 0)
-		return (15ULL * 1000ULL * 1000ULL * 1000ULL);	/* 15 sec */
-
-	if (strcmp(name, "io_T") == 0 || strcmp(name, "checksum_T") == 0)
-		return (1000ULL * 1000ULL * 1000ULL * 600ULL);	/* 10 min */
 
 	return (0);
 }
@@ -334,22 +294,24 @@ fmd_case_uuresolved(fmd_hdl_t *hdl, const char *uuid)
 	fmd_hdl_debug(hdl, "case resolved by uuid (%s)", uuid);
 }
 
-int
+boolean_t
 fmd_case_solved(fmd_hdl_t *hdl, fmd_case_t *cp)
 {
-	return ((cp->ci_state >= FMD_CASE_SOLVED) ? FMD_B_TRUE : FMD_B_FALSE);
+	(void) hdl;
+	return (cp->ci_state >= FMD_CASE_SOLVED);
 }
 
 void
 fmd_case_add_ereport(fmd_hdl_t *hdl, fmd_case_t *cp, fmd_event_t *ep)
 {
+	(void) hdl, (void) cp, (void) ep;
 }
 
 static void
 zed_log_fault(nvlist_t *nvl, const char *uuid, const char *code)
 {
 	nvlist_t *rsrc;
-	char *strval;
+	const char *strval;
 	uint64_t guid;
 	uint8_t byte;
 
@@ -362,7 +324,7 @@ zed_log_fault(nvlist_t *nvl, const char *uuid, const char *code)
 	if (code != NULL)
 		zed_log_msg(LOG_INFO, "\t%s: %s", FM_SUSPECT_DIAG_CODE, code);
 	if (nvlist_lookup_uint8(nvl, FM_FAULT_CERTAINTY, &byte) == 0)
-		zed_log_msg(LOG_INFO, "\t%s: %llu", FM_FAULT_CERTAINTY, byte);
+		zed_log_msg(LOG_INFO, "\t%s: %hhu", FM_FAULT_CERTAINTY, byte);
 	if (nvlist_lookup_nvlist(nvl, FM_FAULT_RESOURCE, &rsrc) == 0) {
 		if (nvlist_lookup_string(rsrc, FM_FMRI_SCHEME, &strval) == 0)
 			zed_log_msg(LOG_INFO, "\t%s: %s", FM_FMRI_SCHEME,
@@ -379,7 +341,8 @@ zed_log_fault(nvlist_t *nvl, const char *uuid, const char *code)
 static const char *
 fmd_fault_mkcode(nvlist_t *fault)
 {
-	char *class, *code = "-";
+	const char *class;
+	const char *code = "-";
 
 	/*
 	 * Note: message codes come from: openzfs/usr/src/cmd/fm/dicts/ZFS.po
@@ -428,7 +391,8 @@ fmd_case_add_suspect(fmd_hdl_t *hdl, fmd_case_t *cp, nvlist_t *fault)
 	err |= nvlist_add_string(nvl, FM_SUSPECT_DIAG_CODE, code);
 	err |= nvlist_add_int64_array(nvl, FM_SUSPECT_DIAG_TIME, tod, 2);
 	err |= nvlist_add_uint32(nvl, FM_SUSPECT_FAULT_SZ, 1);
-	err |= nvlist_add_nvlist_array(nvl, FM_SUSPECT_FAULT_LIST, &fault, 1);
+	err |= nvlist_add_nvlist_array(nvl, FM_SUSPECT_FAULT_LIST,
+	    (const nvlist_t **)&fault, 1);
 
 	if (err)
 		zed_log_die("failed to populate nvlist");
@@ -443,19 +407,21 @@ fmd_case_add_suspect(fmd_hdl_t *hdl, fmd_case_t *cp, nvlist_t *fault)
 void
 fmd_case_setspecific(fmd_hdl_t *hdl, fmd_case_t *cp, void *data)
 {
+	(void) hdl;
 	cp->ci_data = data;
 }
 
 void *
 fmd_case_getspecific(fmd_hdl_t *hdl, fmd_case_t *cp)
 {
+	(void) hdl;
 	return (cp->ci_data);
 }
 
 void
 fmd_buf_create(fmd_hdl_t *hdl, fmd_case_t *cp, const char *name, size_t size)
 {
-	assert(strcmp(name, "data") == 0);
+	assert(strcmp(name, "data") == 0), (void) name;
 	assert(cp->ci_bufptr == NULL);
 	assert(size < (1024 * 1024));
 
@@ -467,22 +433,24 @@ void
 fmd_buf_read(fmd_hdl_t *hdl, fmd_case_t *cp,
     const char *name, void *buf, size_t size)
 {
-	assert(strcmp(name, "data") == 0);
+	(void) hdl;
+	assert(strcmp(name, "data") == 0), (void) name;
 	assert(cp->ci_bufptr != NULL);
 	assert(size <= cp->ci_bufsiz);
 
-	bcopy(cp->ci_bufptr, buf, size);
+	memcpy(buf, cp->ci_bufptr, size);
 }
 
 void
 fmd_buf_write(fmd_hdl_t *hdl, fmd_case_t *cp,
     const char *name, const void *buf, size_t size)
 {
-	assert(strcmp(name, "data") == 0);
+	(void) hdl;
+	assert(strcmp(name, "data") == 0), (void) name;
 	assert(cp->ci_bufptr != NULL);
 	assert(cp->ci_bufsiz >= size);
 
-	bcopy(buf, cp->ci_bufptr, size);
+	memcpy(cp->ci_bufptr, buf, size);
 }
 
 /* SERD Engines */
@@ -519,6 +487,19 @@ fmd_serd_exists(fmd_hdl_t *hdl, const char *name)
 	return (fmd_serd_eng_lookup(&mp->mod_serds, name) != NULL);
 }
 
+int
+fmd_serd_active(fmd_hdl_t *hdl, const char *name)
+{
+	fmd_module_t *mp = (fmd_module_t *)hdl;
+	fmd_serd_eng_t *sgp;
+
+	if ((sgp = fmd_serd_eng_lookup(&mp->mod_serds, name)) == NULL) {
+		zed_log_msg(LOG_ERR, "serd engine '%s' does not exist", name);
+		return (0);
+	}
+	return (fmd_serd_eng_fired(sgp) || !fmd_serd_eng_empty(sgp));
+}
+
 void
 fmd_serd_reset(fmd_hdl_t *hdl, const char *name)
 {
@@ -527,12 +508,10 @@ fmd_serd_reset(fmd_hdl_t *hdl, const char *name)
 
 	if ((sgp = fmd_serd_eng_lookup(&mp->mod_serds, name)) == NULL) {
 		zed_log_msg(LOG_ERR, "serd engine '%s' does not exist", name);
-		return;
+	} else {
+		fmd_serd_eng_reset(sgp);
+		fmd_hdl_debug(hdl, "serd_reset %s", name);
 	}
-
-	fmd_serd_eng_reset(sgp);
-
-	fmd_hdl_debug(hdl, "serd_reset %s", name);
 }
 
 int
@@ -540,16 +519,21 @@ fmd_serd_record(fmd_hdl_t *hdl, const char *name, fmd_event_t *ep)
 {
 	fmd_module_t *mp = (fmd_module_t *)hdl;
 	fmd_serd_eng_t *sgp;
-	int err;
 
 	if ((sgp = fmd_serd_eng_lookup(&mp->mod_serds, name)) == NULL) {
 		zed_log_msg(LOG_ERR, "failed to add record to SERD engine '%s'",
 		    name);
-		return (FMD_B_FALSE);
+		return (0);
 	}
-	err = fmd_serd_eng_record(sgp, ep->ev_hrt);
+	return (fmd_serd_eng_record(sgp, ep->ev_hrt));
+}
 
-	return (err);
+void
+fmd_serd_gc(fmd_hdl_t *hdl)
+{
+	fmd_module_t *mp = (fmd_module_t *)hdl;
+
+	fmd_serd_hash_apply(&mp->mod_serds, fmd_serd_eng_gc, NULL);
 }
 
 /* FMD Timers */
@@ -563,10 +547,10 @@ _timer_notify(union sigval sv)
 	const fmd_hdl_ops_t *ops = mp->mod_info->fmdi_ops;
 	struct itimerspec its;
 
-	fmd_hdl_debug(hdl, "timer fired (%p)", ftp->ft_tid);
+	fmd_hdl_debug(hdl, "%s timer fired (%p)", mp->mod_name, ftp->ft_tid);
 
 	/* disarm the timer */
-	bzero(&its, sizeof (struct itimerspec));
+	memset(&its, 0, sizeof (struct itimerspec));
 	timer_settime(ftp->ft_tid, 0, &its, NULL);
 
 	/* Note that the fmdo_timeout can remove this timer */
@@ -582,6 +566,7 @@ _timer_notify(union sigval sv)
 fmd_timer_t *
 fmd_timer_install(fmd_hdl_t *hdl, void *arg, fmd_event_t *ep, hrtime_t delta)
 {
+	(void) ep;
 	struct sigevent sev;
 	struct itimerspec its;
 	fmd_timer_t *ftp;
@@ -599,6 +584,7 @@ fmd_timer_install(fmd_hdl_t *hdl, void *arg, fmd_event_t *ep, hrtime_t delta)
 	sev.sigev_notify_function = _timer_notify;
 	sev.sigev_notify_attributes = NULL;
 	sev.sigev_value.sival_ptr = ftp;
+	sev.sigev_signo = 0;
 
 	timer_create(CLOCK_REALTIME, &sev, &ftp->ft_tid);
 	timer_settime(ftp->ft_tid, 0, &its, NULL);
@@ -625,6 +611,7 @@ nvlist_t *
 fmd_nvl_create_fault(fmd_hdl_t *hdl, const char *class, uint8_t certainty,
     nvlist_t *asru, nvlist_t *fru, nvlist_t *resource)
 {
+	(void) hdl;
 	nvlist_t *nvl;
 	int err = 0;
 
@@ -688,7 +675,8 @@ fmd_strmatch(const char *s, const char *p)
 int
 fmd_nvl_class_match(fmd_hdl_t *hdl, nvlist_t *nvl, const char *pattern)
 {
-	char *class;
+	(void) hdl;
+	const char *class;
 
 	return (nvl != NULL &&
 	    nvlist_lookup_string(nvl, FM_CLASS, &class) == 0 &&
@@ -698,6 +686,7 @@ fmd_nvl_class_match(fmd_hdl_t *hdl, nvlist_t *nvl, const char *pattern)
 nvlist_t *
 fmd_nvl_alloc(fmd_hdl_t *hdl, int flags)
 {
+	(void) hdl, (void) flags;
 	nvlist_t *nvl = NULL;
 
 	if (nvlist_alloc(&nvl, NV_UNIQUE_NAME, 0) != 0)

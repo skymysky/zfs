@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -34,23 +25,7 @@
 
 verify_runnable "global"
 
-if ! $(is_physical_device $DISKS) ; then
-	log_unsupported "This directory cannot be run on raw files."
-fi
+log_must truncate -s $SIZE_SMALL $DISK_SMALL
+log_must truncate -s $SIZE_LARGE $DISK_LARGE
 
-DISK=${DISKS%% *}
-
-log_must set_partition 0 "" $SIZE $DISK
-
-if is_linux; then
-	if ( is_mpath_device $DISK ) && [[ -z $(echo $DISK | awk 'substr($1,18,1)\
-	    ~ /^[[:digit:]]+$/') ]] || ( is_real_device $DISK ); then
-		default_setup $DISK"1"
-	elif ( is_mpath_device $DISK || is_loop_device $DISK ); then
-		default_setup $DISK"p1"
-	else
-		log_fail "$DISK not supported for partitioning."
-	fi
-else
-	default_setup $DISK"s0"
-fi
+log_pass

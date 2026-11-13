@@ -1,34 +1,30 @@
 #! /bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
+
 #
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# Copyright (c) 2018, 2019 by Delphix. All rights reserved.
 #
 
 . $STF_SUITE/include/libtest.shlib
 . $STF_SUITE/include/properties.shlib
+. $STF_SUITE/tests/functional/checksum/default.cfg
 
 # DESCRIPTION:
 # Sanity test to make sure checksum algorithms work.
 # For each checksum, create a file in the pool using that checksum.  Verify
 # that there are no checksum errors.  Next, for each checksum, create a single
-# file in the pool using that checksum, scramble the underlying vdev, and
-# verify that we correctly catch the checksum errors.
+# file in the pool using that checksum, corrupt the file, and verify that we
+# correctly catch the checksum errors.
 #
 # STRATEGY:
 # Test 1
@@ -41,33 +37,23 @@
 # Test 2
 # 6. For each checksum:
 # 7.	Create a file using the checksum
-# 8.	Export the pool
-# 9.	Scramble the data on one of the underlying VDEVs
-# 10.	Import the pool
-# 11.	Scrub the pool
-# 12.	Verify that there are checksum errors
+# 8.	Corrupt all level 0 blocks in the file
+# 9.	Scrub the pool
+# 10.	Verify that there are checksum errors
 
 verify_runnable "both"
 
 function cleanup
 {
-	echo cleanup
-	[[ -e $TESTDIR ]] && \
-		log_must rm -rf $TESTDIR/* > /dev/null 2>&1
+	rm -fr $TESTDIR/*
 }
 
 log_assert "Create and read back files with using different checksum algorithms"
 
 log_onexit cleanup
 
-FSSIZE=$(zpool list -Hp -o size $TESTPOOL)
 WRITESZ=1048576
-WRITECNT=$((($FSSIZE) / $WRITESZ ))
-# Skip the first and last 4MB
-SKIP=4127518
-SKIPCNT=$((($SKIP / $WRITESZ )))
-SKIPCNT=$((($SKIPCNT * 2)))
-WRITECNT=$((($WRITECNT - $SKIPCNT)))
+NWRITES=5
 
 # Get a list of vdevs in our pool
 set -A array $(get_disklist_fullpath)
@@ -75,51 +61,48 @@ set -A array $(get_disklist_fullpath)
 # Get the first vdev, since we will corrupt it later
 firstvdev=${array[0]}
 
-# First test each checksum by writing a file using it, and confirm there's no
-# errors.
-for ((count = 0; count < ${#checksum_props[*]} ; count++)); do
-	i=${checksum_props[$count]}
-	zfs set checksum=$i $TESTPOOL
-	file_write -o overwrite -f $TESTDIR/test_$i -b $WRITESZ -c 5 -d R
+# Test each checksum by writing a file using it, confirm there are no errors.
+typeset -i i=1
+while [[ $i -lt ${#CHECKSUM_TYPES[*]} ]]; do
+	type=${CHECKSUM_TYPES[i]}
+	log_must zfs set checksum=$type $TESTPOOL
+	log_must file_write -o overwrite -f $TESTDIR/test_$type \
+	    -b $WRITESZ -c $NWRITES -d R
+	(( i = i + 1 ))
 done
-zpool export $TESTPOOL
-zpool import $TESTPOOL
-zpool scrub $TESTPOOL
-while is_pool_scrubbing $TESTPOOL; do
-	sleep 1
-done
-zpool status -P -v $TESTPOOL | grep $firstvdev | read -r name state rd wr cksum
+
+log_must zpool export $TESTPOOL
+log_must zpool import $TESTPOOL
+log_must zpool scrub $TESTPOOL
+log_must wait_scrubbed $TESTPOOL
+
+cksum=$(zpool status -P -v $TESTPOOL | awk -v v="$firstvdev" '$0 ~ v {print $5}')
 log_assert "Normal file write test saw $cksum checksum errors"
 log_must [ $cksum -eq 0 ]
 
 rm -fr $TESTDIR/*
 
-log_assert "Test scrambling the disk and seeing checksum errors"
-for ((count = 0; count < ${#checksum_props[*]} ; count++)); do
-	i=${checksum_props[$count]}
-	zfs set checksum=$i $TESTPOOL
-	file_write -o overwrite -f $TESTDIR/test_$i -b $WRITESZ -c 5 -d R
+log_assert "Test corrupting the files and seeing checksum errors"
+typeset -i j=1
+while [[ $j -lt ${#CHECKSUM_TYPES[*]} ]]; do
+	type=${CHECKSUM_TYPES[$j]}
+	log_must zfs set checksum=$type $TESTPOOL
+	log_must file_write -o overwrite -f $TESTDIR/test_$type \
+	    -b $WRITESZ -c $NWRITES -d R
 
-	zpool export $TESTPOOL
+	# Corrupt the level 0 blocks of this file
+	corrupt_blocks_at_level $TESTDIR/test_$type
 
-	# Scramble the data on the first vdev in our pool.
-	# Skip the first and last 16MB of data, then scramble the rest after that
-	#
-	file_write -o overwrite -f $firstvdev -s $SKIP -c $WRITECNT -b $WRITESZ -d R
+	log_must zpool scrub $TESTPOOL
+	log_must wait_scrubbed $TESTPOOL
 
-	zpool import $TESTPOOL
+	cksum=$(zpool status -P -v $TESTPOOL | awk -v v="$firstvdev" '$0 ~ v {print $5}')
 
-	i=${checksum_props[$count]}
-	zpool scrub $TESTPOOL
-	while is_pool_scrubbing $TESTPOOL; do
-                sleep 1
-        done
-
-	zpool status -P -v $TESTPOOL | grep $firstvdev | read -r name state rd wr cksum
-
-	log_assert "Checksum '$i' caught $cksum checksum errors"
+	log_assert "Checksum '$type' caught $cksum checksum errors"
 	log_must [ $cksum -ne 0 ]
 
-	rm -f $TESTDIR/test_$i
-	zpool clear $TESTPOOL
+	rm -f $TESTDIR/test_$type
+	log_must zpool clear $TESTPOOL
+
+	(( j = j + 1 ))
 done

@@ -1,29 +1,20 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 /*
- * Copyright (c) 2013 by Delphix. All rights reserved.
+ * Copyright (c) 2013, 2016 by Delphix. All rights reserved.
  */
 
 /*
@@ -34,13 +25,9 @@
  * name is invalid.  In the kernel, we only care whether it's valid or not.
  * Each routine therefore takes a 'namecheck_err_t' which describes exactly why
  * the name failed to validate.
- *
- * Each function returns 0 on success, -1 on error.
  */
 
-#if defined(_KERNEL)
-#include <sys/systm.h>
-#else
+#if !defined(_KERNEL)
 #include <string.h>
 #endif
 
@@ -49,6 +36,14 @@
 #include <sys/nvpair.h>
 #include "zfs_namecheck.h"
 #include "zfs_deleg.h"
+
+/*
+ * Deeply nested datasets can overflow the stack, so we put a limit
+ * in the amount of nesting a path can have. zfs_max_dataset_nesting
+ * can be tuned temporarily to fix existing datasets that exceed our
+ * predefined limit.
+ */
+int zfs_max_dataset_nesting = 50;
 
 static int
 valid_char(char c)
@@ -60,10 +55,35 @@ valid_char(char c)
 }
 
 /*
+ * Looks at a path and returns its level of nesting (depth).
+ */
+int
+get_dataset_depth(const char *path)
+{
+	const char *loc = path;
+	int nesting = 0;
+
+	/*
+	 * Keep track of nesting until you hit the end of the
+	 * path or found the snapshot/bookmark separator.
+	 */
+	for (int i = 0; loc[i] != '\0' &&
+	    loc[i] != '@' &&
+	    loc[i] != '#'; i++) {
+		if (loc[i] == '/')
+			nesting++;
+	}
+
+	return (nesting);
+}
+
+/*
  * Snapshot names must be made up of alphanumeric characters plus the following
  * characters:
  *
- * 	[-_.: ]
+ *	[-_.: ]
+ *
+ * Returns 0 on success, -1 on error.
  */
 int
 zfs_component_namecheck(const char *path, namecheck_err_t *why, char *what)
@@ -99,6 +119,8 @@ zfs_component_namecheck(const char *path, namecheck_err_t *why, char *what)
  * Permissions set name must start with the letter '@' followed by the
  * same character restrictions as snapshot names, except that the name
  * cannot exceed 64 characters.
+ *
+ * Returns 0 on success, -1 on error.
  */
 int
 permset_namecheck(const char *path, namecheck_err_t *why, char *what)
@@ -121,28 +143,42 @@ permset_namecheck(const char *path, namecheck_err_t *why, char *what)
 }
 
 /*
+ * Dataset paths should not be deeper than zfs_max_dataset_nesting
+ * in terms of nesting.
+ *
+ * Returns 0 on success, -1 on error.
+ */
+int
+dataset_nestcheck(const char *path)
+{
+	return ((get_dataset_depth(path) < zfs_max_dataset_nesting) ? 0 : -1);
+}
+
+/*
  * Entity names must be of the following form:
  *
- * 	[component/]*[component][(@|#)component]?
+ *	[component/]*[component][(@|#)component]?
  *
  * Where each component is made up of alphanumeric characters plus the following
  * characters:
  *
- * 	[-_.:%]
+ *	[-_.: %]
  *
  * We allow '%' here as we use that character internally to create unique
  * names for temporary clones (for online recv).
+ *
+ * Returns 0 on success, -1 on error.
  */
 int
 entity_namecheck(const char *path, namecheck_err_t *why, char *what)
 {
-	const char *start, *end;
-	int found_delim;
+	const char *end;
+
+	EQUIV(why == NULL, what == NULL);
 
 	/*
 	 * Make sure the name is not too long.
 	 */
-
 	if (strlen(path) >= ZFS_MAX_DATASET_NAME_LEN) {
 		if (why)
 			*why = NAME_ERR_TOOLONG;
@@ -162,8 +198,8 @@ entity_namecheck(const char *path, namecheck_err_t *why, char *what)
 		return (-1);
 	}
 
-	start = path;
-	found_delim = 0;
+	const char *start = path;
+	boolean_t found_delim = B_FALSE;
 	for (;;) {
 		/* Find the end of this component */
 		end = start;
@@ -189,6 +225,25 @@ entity_namecheck(const char *path, namecheck_err_t *why, char *what)
 			}
 		}
 
+		int component_length = end - start;
+		/* Validate the contents of this component is not '.' */
+		if (component_length == 1) {
+			if (start[0] == '.') {
+				if (why)
+					*why = NAME_ERR_SELF_REF;
+				return (-1);
+			}
+		}
+
+		/* Validate the content of this component is not '..' */
+		if (component_length == 2) {
+			if (start[0] == '.' && start[1] == '.') {
+				if (why)
+					*why = NAME_ERR_PARENT_REF;
+				return (-1);
+			}
+		}
+
 		/* Snapshot or bookmark delimiter found */
 		if (*end == '@' || *end == '#') {
 			/* Multiple delimiters are not allowed */
@@ -198,7 +253,7 @@ entity_namecheck(const char *path, namecheck_err_t *why, char *what)
 				return (-1);
 			}
 
-			found_delim = 1;
+			found_delim = B_TRUE;
 		}
 
 		/* Zero-length components are not allowed */
@@ -247,9 +302,72 @@ dataset_namecheck(const char *path, namecheck_err_t *why, char *what)
 }
 
 /*
+ * Assert path is a valid name for a new clone: a dataset name with no
+ * snapshot delimiter and no '%', which is reserved for the temporary clones
+ * of online recv.
+ */
+int
+clone_namecheck(const char *path, namecheck_err_t *why, char *what)
+{
+	int ret = dataset_namecheck(path, why, what);
+	const char *bad;
+
+	if (ret == 0 && ((bad = strchr(path, '@')) != NULL ||
+	    (bad = strchr(path, '%')) != NULL)) {
+		if (why != NULL) {
+			*why = NAME_ERR_INVALCHAR;
+			*what = *bad;
+		}
+		return (-1);
+	}
+
+	return (ret);
+}
+
+/*
+ * Assert path is a valid bookmark name
+ */
+int
+bookmark_namecheck(const char *path, namecheck_err_t *why, char *what)
+{
+	int ret = entity_namecheck(path, why, what);
+
+	if (ret == 0 && strchr(path, '#') == NULL) {
+		if (why != NULL) {
+			*why = NAME_ERR_NO_POUND;
+			*what = '#';
+		}
+		return (-1);
+	}
+
+	return (ret);
+}
+
+/*
+ * Assert path is a valid snapshot name
+ */
+int
+snapshot_namecheck(const char *path, namecheck_err_t *why, char *what)
+{
+	int ret = entity_namecheck(path, why, what);
+
+	if (ret == 0 && strchr(path, '@') == NULL) {
+		if (why != NULL) {
+			*why = NAME_ERR_NO_AT;
+			*what = '@';
+		}
+		return (-1);
+	}
+
+	return (ret);
+}
+
+/*
  * mountpoint names must be of the following form:
  *
  *	/[component][/]*[component][/]
+ *
+ * Returns 0 on success, -1 on error.
  */
 int
 mountpoint_namecheck(const char *path, namecheck_err_t *why)
@@ -294,6 +412,8 @@ mountpoint_namecheck(const char *path, namecheck_err_t *why)
  * dataset names, with the additional restriction that the pool name must begin
  * with a letter.  The pool names 'raidz' and 'mirror' are also reserved names
  * that cannot be used.
+ *
+ * Returns 0 on success, -1 on error.
  */
 int
 pool_namecheck(const char *pool, namecheck_err_t *why, char *what)
@@ -334,23 +454,29 @@ pool_namecheck(const char *pool, namecheck_err_t *why, char *what)
 		return (-1);
 	}
 
-	if (strcmp(pool, "mirror") == 0 || strcmp(pool, "raidz") == 0) {
+	if (strcmp(pool, "mirror") == 0 ||
+	    strcmp(pool, "raidz") == 0 ||
+	    strcmp(pool, "draid") == 0 ||
+	    strcmp(pool, "anymirror") == 0 ||
+	    strcmp(pool, "anyraid") == 0) {
 		if (why)
 			*why = NAME_ERR_RESERVED;
-		return (-1);
-	}
-
-	if (pool[0] == 'c' && (pool[1] >= '0' && pool[1] <= '9')) {
-		if (why)
-			*why = NAME_ERR_DISKLIKE;
 		return (-1);
 	}
 
 	return (0);
 }
 
-#if defined(_KERNEL) && defined(HAVE_SPL)
+EXPORT_SYMBOL(entity_namecheck);
 EXPORT_SYMBOL(pool_namecheck);
 EXPORT_SYMBOL(dataset_namecheck);
+EXPORT_SYMBOL(clone_namecheck);
+EXPORT_SYMBOL(bookmark_namecheck);
+EXPORT_SYMBOL(snapshot_namecheck);
 EXPORT_SYMBOL(zfs_component_namecheck);
-#endif
+EXPORT_SYMBOL(dataset_nestcheck);
+EXPORT_SYMBOL(get_dataset_depth);
+EXPORT_SYMBOL(zfs_max_dataset_nesting);
+
+ZFS_MODULE_PARAM(zfs, zfs_, max_dataset_nesting, INT, ZMOD_RW,
+	"Limit to the amount of nesting a path can have. Defaults to 50.");

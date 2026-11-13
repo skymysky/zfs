@@ -1,6 +1,5 @@
 #!/bin/ksh -p
-#
-# CDDL HEADER START
+# SPDX-License-Identifier: CDDL-1.0
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -9,9 +8,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
-#
-# CDDL HEADER END
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -37,7 +34,8 @@ verify_runnable "both"
 function cleanup
 {
 	zinject -c all
-	default_cleanup_noexit
+	mmp_clear_suspended $TESTPOOL
+	poolexists $TESTPOOL && destroy_pool $TESTPOOL
 	log_must mmp_clear_hostid
 }
 
@@ -45,11 +43,11 @@ log_assert "mmp behaves correctly when failing to write uberblocks."
 log_onexit cleanup
 
 log_must mmp_set_hostid $HOSTID1
-default_mirror_setup_noexit $DISKS
+log_must zpool create -f $TESTPOOL mirror $DISKS
 log_must zpool set multihost=on $TESTPOOL
-log_must zinject -d ${DISK[0]} -e io -T write -f 50 $TESTPOOL -L uber
+log_must zinject -d ${DISK[0]} -e io -T write -f 50 -L uber $TESTPOOL
 clear_mmp_history
-uber_count=$(count_uberblocks $TESTPOOL 3)
+uber_count=$(count_mmp_writes $TESTPOOL 3)
 
 if [ $uber_count -eq 0 ]; then
 	log_fail "mmp writes did not occur when uberblock IO errors injected"

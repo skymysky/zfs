@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -34,26 +25,23 @@
 
 #
 # DESCRIPTION:
-#	'zpool add -n <pool> <vdev> ...' can display the configuration without
-# adding the specified devices to given pool
+# 'zpool add -n <pool> <vdev> ...' can display the configuration without adding
+# the specified devices to given pool
 #
 # STRATEGY:
-#	1. Create a storage pool
-#	2. Use -n to add a device to the pool
-#	3. Verify the device is not added actually
+# 1. Create a storage pool
+# 2. Use -n to add devices to the pool
+# 3. Verify the devices are not added actually
+# 4. Add devices to the pool for real this time, verify the vdev tree is the
+#    same printed by the dryrun iteration
 #
 
 verify_runnable "global"
 
 function cleanup
 {
-        poolexists $TESTPOOL && \
-                destroy_pool $TESTPOOL
-
-	partition_cleanup
-
-	[[ -e $tmpfile ]] && \
-		log_must rm -f $tmpfile
+	destroy_pool $TESTPOOL
+	rm -f $TMPFILE_PREFIX* $VDEV_PREFIX*
 }
 
 log_assert "'zpool add -n <pool> <vdev> ...' can display the configuration" \
@@ -61,18 +49,40 @@ log_assert "'zpool add -n <pool> <vdev> ...' can display the configuration" \
 
 log_onexit cleanup
 
-tmpfile="/var/tmp/zpool_add_003.tmp$$"
+typeset TMPFILE_PREFIX="$TEST_BASE_DIR/zpool_add_003"
+typeset STR_DRYRUN="would update '$TESTPOOL' to the following configuration:"
+typeset VDEV_PREFIX="$TEST_BASE_DIR/filedev"
+typeset -a VDEV_TYPES=("" "dedup" "special" "log" "cache" "spare")
 
-create_pool "$TESTPOOL" "${disk}${SLICE_PREFIX}${SLICE0}"
+vdevs=""
+config=""
+
+# 1. Create a storage pool
+log_must truncate -s $SPA_MINDEVSIZE "$VDEV_PREFIX-root"
+log_must zpool create "$TESTPOOL" "$VDEV_PREFIX-root"
 log_must poolexists "$TESTPOOL"
+for vdevtype in "${VDEV_TYPES[@]}"; do
+	log_must truncate -s $SPA_MINDEVSIZE "$VDEV_PREFIX-$vdevtype"
+	vdevs="$vdevs $VDEV_PREFIX-$vdevtype"
+	config="$config $vdevtype $VDEV_PREFIX-$vdevtype"
+done
 
-zpool add -n "$TESTPOOL" ${disk}${SLICE_PREFIX}${SLICE1} > $tmpfile
+# 2. Use -n to add devices to the pool
+log_must eval "zpool add -f -n $TESTPOOL $config > $TMPFILE_PREFIX-dryrun"
+log_must grep -q "$STR_DRYRUN" "$TMPFILE_PREFIX-dryrun"
 
-log_mustnot vdevs_in_pool "$TESTPOOL" "${disk}${SLICE_PREFIX}${SLICE1}"
+# 3. Verify the devices are not added actually
+for vdev in $vdevs; do
+	log_mustnot vdevs_in_pool "$TESTPOOL" "$vdev"
+done
 
-str="would update '$TESTPOOL' to the following configuration:"
-cat $tmpfile | grep "$str" >/dev/null 2>&1
-(( $? != 0 )) && \
-	 log_fail "'zpool add -n <pool> <vdev> ...' is executed as unexpected"
+# 4. Add devices to the pool for real this time, verify the vdev tree is the
+#    same printed by the dryrun iteration
+log_must zpool add -f $TESTPOOL $config
+zpool status $TESTPOOL | awk 'NR == 1, /NAME/ { next } /^$/ {exit}
+	{print $1}' > "$TMPFILE_PREFIX-vdevtree"
+awk 'NR == 1, /would/ {next}
+	/^$/ {next} {print $1}' "$TMPFILE_PREFIX-dryrun" > "$TMPFILE_PREFIX-vdevtree-n"
+log_must diff $TMPFILE_PREFIX-vdevtree-n $TMPFILE_PREFIX-vdevtree
 
-log_pass "'zpool add -n <pool> <vdev> ...'executes successfully."
+log_pass "'zpool add -n <pool> <vdev> ...' executes successfully."

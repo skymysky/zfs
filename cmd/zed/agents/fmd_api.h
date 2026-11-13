@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 
 /*
@@ -33,7 +24,7 @@
 #include <time.h>
 #include <libnvpair.h>
 #include <stdarg.h>
-#include <umem.h>
+#include <sys/kmem.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -70,10 +61,6 @@ typedef struct fmd_case {
 	void		*ci_bufptr;	/* case data serialization buffer */
 	size_t		ci_bufsiz;
 } fmd_case_t;
-
-
-#define	FMD_B_FALSE	0		/* false value for booleans as int */
-#define	FMD_B_TRUE	1		/* true value for booleans as int */
 
 
 #define	FMD_CASE_UNSOLVED	0	/* case is not yet solved (waiting) */
@@ -142,7 +129,7 @@ extern void fmd_hdl_unregister(fmd_hdl_t *);
 extern void fmd_hdl_setspecific(fmd_hdl_t *, void *);
 extern void *fmd_hdl_getspecific(fmd_hdl_t *);
 
-#define	FMD_SLEEP	UMEM_NOFAIL
+#define	FMD_SLEEP	KM_SLEEP
 
 extern void *fmd_hdl_alloc(fmd_hdl_t *, size_t, int);
 extern void *fmd_hdl_zalloc(fmd_hdl_t *, size_t, int);
@@ -155,7 +142,6 @@ extern void fmd_hdl_vdebug(fmd_hdl_t *, const char *, va_list);
 extern void fmd_hdl_debug(fmd_hdl_t *, const char *, ...);
 
 extern int32_t fmd_prop_get_int32(fmd_hdl_t *, const char *);
-extern int64_t fmd_prop_get_int64(fmd_hdl_t *, const char *);
 
 #define	FMD_STAT_NOALLOC	0x0	/* fmd should use caller's memory */
 #define	FMD_STAT_ALLOC		0x1	/* fmd should allocate stats memory */
@@ -176,8 +162,7 @@ extern int fmd_case_uuclosed(fmd_hdl_t *, const char *);
 extern int fmd_case_uuisresolved(fmd_hdl_t *, const char *);
 extern void fmd_case_uuresolved(fmd_hdl_t *, const char *);
 
-extern int fmd_case_solved(fmd_hdl_t *, fmd_case_t *);
-extern int fmd_case_closed(fmd_hdl_t *, fmd_case_t *);
+extern boolean_t fmd_case_solved(fmd_hdl_t *, fmd_case_t *);
 
 extern void fmd_case_add_ereport(fmd_hdl_t *, fmd_case_t *, fmd_event_t *);
 extern void fmd_case_add_serd(fmd_hdl_t *, fmd_case_t *, const char *);
@@ -200,10 +185,12 @@ extern size_t fmd_buf_size(fmd_hdl_t *, fmd_case_t *, const char *);
 extern void fmd_serd_create(fmd_hdl_t *, const char *, uint_t, hrtime_t);
 extern void fmd_serd_destroy(fmd_hdl_t *, const char *);
 extern int fmd_serd_exists(fmd_hdl_t *, const char *);
+extern int fmd_serd_active(fmd_hdl_t *, const char *);
 extern void fmd_serd_reset(fmd_hdl_t *, const char *);
 extern int fmd_serd_record(fmd_hdl_t *, const char *, fmd_event_t *);
 extern int fmd_serd_fired(fmd_hdl_t *, const char *);
 extern int fmd_serd_empty(fmd_hdl_t *, const char *);
+extern void fmd_serd_gc(fmd_hdl_t *);
 
 extern id_t fmd_timer_install(fmd_hdl_t *, void *, fmd_event_t *, hrtime_t);
 extern void fmd_timer_remove(fmd_hdl_t *, id_t);

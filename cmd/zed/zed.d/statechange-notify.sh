@@ -1,21 +1,22 @@
 #!/bin/sh
+# SPDX-License-Identifier: CDDL-1.0
+# shellcheck disable=SC2154
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License Version 1.0 (CDDL-1.0).
-# You can obtain a copy of the license from the top-level file
-# "OPENSOLARIS.LICENSE" or at <http://opensource.org/licenses/CDDL-1.0>.
-# You may not use this file except in compliance with the license.
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
 # Send notification in response to a fault induced statechange
 #
 # ZEVENT_SUBCLASS: 'statechange'
-# ZEVENT_VDEV_STATE_STR: 'DEGRADED', 'FAULTED' or 'REMOVED'
+# ZEVENT_VDEV_STATE_STR: 'DEGRADED', 'FAULTED', 'REMOVED', or 'UNAVAIL'
 #
 # Exit codes:
 #   0: notification sent
@@ -31,13 +32,14 @@
 
 if [ "${ZEVENT_VDEV_STATE_STR}" != "FAULTED" ] \
         && [ "${ZEVENT_VDEV_STATE_STR}" != "DEGRADED" ] \
-        && [ "${ZEVENT_VDEV_STATE_STR}" != "REMOVED" ]; then
+        && [ "${ZEVENT_VDEV_STATE_STR}" != "REMOVED" ] \
+        && [ "${ZEVENT_VDEV_STATE_STR}" != "UNAVAIL" ]; then
     exit 3
 fi
 
 umask 077
-note_subject="ZFS device fault for pool ${ZEVENT_POOL_GUID} on $(hostname)"
-note_pathname="${TMPDIR:="/tmp"}/$(basename -- "$0").${ZEVENT_EID}.$$"
+note_subject="ZFS device fault for pool ${ZEVENT_POOL} on $(hostname)"
+note_pathname="$(mktemp)"
 {
     if [ "${ZEVENT_VDEV_STATE_STR}" = "FAULTED" ] ; then
         echo "The number of I/O errors associated with a ZFS device exceeded"
@@ -64,7 +66,7 @@ note_pathname="${TMPDIR:="/tmp"}/$(basename -- "$0").${ZEVENT_EID}.$$"
     [ -n "${ZEVENT_VDEV_GUID}" ] && echo "  vguid: ${ZEVENT_VDEV_GUID}"
     [ -n "${ZEVENT_VDEV_DEVID}" ] && echo "  devid: ${ZEVENT_VDEV_DEVID}"
 
-    echo "   pool: ${ZEVENT_POOL_GUID}"
+    echo "   pool: ${ZEVENT_POOL} (${ZEVENT_POOL_GUID})"
 
 } > "${note_pathname}"
 

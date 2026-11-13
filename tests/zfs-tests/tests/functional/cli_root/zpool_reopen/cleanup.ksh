@@ -1,4 +1,5 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 
 #
 # This file and its contents are supplied under the terms of the
@@ -8,7 +9,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -20,12 +21,16 @@
 
 verify_runnable "global"
 
+if ! is_linux; then
+	log_unsupported "scsi debug module unsupported"
+fi
+
 cleanup_devices $DISKS
 
 # Unplug the disk and remove scsi_debug module
 if is_linux; then
 	for SDDEVICE in $(get_debug_device); do
-		unplug $SDDEVICE
+		remove_disk $SDDEVICE
 	done
 	unload_scsi_debug
 fi

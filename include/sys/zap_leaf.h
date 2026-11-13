@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
@@ -46,9 +37,14 @@ struct zap_stats;
  * block size (1<<l->l_bs) - hash entry size (2) * number of hash
  * entries - header space (2*chunksize)
  */
-#define	ZAP_LEAF_NUMCHUNKS(l) \
-	(((1<<(l)->l_bs) - 2*ZAP_LEAF_HASH_NUMENTRIES(l)) / \
+#define	ZAP_LEAF_NUMCHUNKS_BS(bs) \
+	(((1U << (bs)) - 2 * ZAP_LEAF_HASH_NUMENTRIES_BS(bs)) / \
 	ZAP_LEAF_CHUNKSIZE - 2)
+
+#define	ZAP_LEAF_NUMCHUNKS(l) (ZAP_LEAF_NUMCHUNKS_BS(((l)->l_bs)))
+
+#define	ZAP_LEAF_NUMCHUNKS_DEF \
+	(ZAP_LEAF_NUMCHUNKS_BS(fzap_default_block_shift))
 
 /*
  * The amount of space within the chunk available for the array is:
@@ -74,8 +70,10 @@ struct zap_stats;
  * which is less than block size / CHUNKSIZE (24) / minimum number of
  * chunks per entry (3).
  */
-#define	ZAP_LEAF_HASH_SHIFT(l) ((l)->l_bs - 5)
-#define	ZAP_LEAF_HASH_NUMENTRIES(l) (1 << ZAP_LEAF_HASH_SHIFT(l))
+#define	ZAP_LEAF_HASH_SHIFT_BS(bs) ((bs) - 5)
+#define	ZAP_LEAF_HASH_NUMENTRIES_BS(bs) (1U << ZAP_LEAF_HASH_SHIFT_BS(bs))
+#define	ZAP_LEAF_HASH_SHIFT(l) (ZAP_LEAF_HASH_SHIFT_BS(((l)->l_bs)))
+#define	ZAP_LEAF_HASH_NUMENTRIES(l) (ZAP_LEAF_HASH_NUMENTRIES_BS(((l)->l_bs)))
 
 /*
  * The chunks start immediately after the hash table.  The end of the
@@ -125,7 +123,7 @@ typedef struct zap_leaf_phys {
 	 * with the ZAP_LEAF_CHUNK() macro.
 	 */
 
-	uint16_t l_hash[1];
+	uint16_t l_hash[];
 } zap_leaf_phys_t;
 
 typedef union zap_leaf_chunk {
@@ -156,7 +154,7 @@ typedef struct zap_leaf {
 	dmu_buf_user_t l_dbu;
 	krwlock_t l_rwlock;
 	uint64_t l_blkid;		/* 1<<ZAP_BLOCK_SHIFT byte block off */
-	int l_bs;			/* block size shift */
+	uint_t l_bs;			/* block size shift */
 	dmu_buf_t *l_dbuf;
 } zap_leaf_t;
 
@@ -236,7 +234,7 @@ extern boolean_t zap_entry_normalization_conflict(zap_entry_handle_t *zeh,
  */
 
 extern void zap_leaf_init(zap_leaf_t *l, boolean_t sort);
-extern void zap_leaf_byteswap(zap_leaf_phys_t *buf, int len);
+extern void zap_leaf_byteswap(zap_leaf_phys_t *buf, size_t len);
 extern void zap_leaf_split(zap_leaf_t *l, zap_leaf_t *nl, boolean_t sort);
 extern void zap_leaf_stats(struct zap *zap, zap_leaf_t *l,
     struct zap_stats *zs);

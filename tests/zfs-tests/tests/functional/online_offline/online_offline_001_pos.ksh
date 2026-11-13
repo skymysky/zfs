@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -49,19 +40,18 @@ DISKLIST=$(get_disklist $TESTPOOL)
 
 function cleanup
 {
+	kill $killpid >/dev/null 2>&1
+
 	#
 	# Ensure we don't leave disks in the offline state
 	#
 	for disk in $DISKLIST; do
 		log_must zpool online $TESTPOOL $disk
-		check_state $TESTPOOL $disk "online"
-		if [[ $? != 0 ]]; then
-			log_fail "Unable to online $disk"
-		fi
-
+		log_must check_state $TESTPOOL $disk "online"
 	done
+	sleep 1 # Delay for resilver to start
+	log_must zpool wait -t resilver $TESTPOOL
 
-	kill $killpid >/dev/null 2>&1
 	[[ -e $TESTDIR ]] && log_must rm -rf $TESTDIR/*
 }
 
@@ -73,24 +63,18 @@ typeset killpid="$! "
 for disk in $DISKLIST; do
 	for i in 'do_offline' 'do_offline_while_already_offline'; do
 		log_must zpool offline $TESTPOOL $disk
-		check_state $TESTPOOL $disk "offline"
-		if [[ $? != 0 ]]; then
-			log_fail "$disk of $TESTPOOL is not offline."
-		fi
+		log_must check_state $TESTPOOL $disk "offline"
 	done
 
 	log_must zpool online $TESTPOOL $disk
-	check_state $TESTPOOL $disk "online"
-	if [[ $? != 0 ]]; then
-		log_fail "$disk of $TESTPOOL did not match online state"
-	fi
-
-	# Delay for resilver to complete
-	sleep 3
+	log_must check_state $TESTPOOL $disk "online"
+	sleep 1 # Delay for resilver to start
+	log_must zpool wait -t resilver $TESTPOOL
 done
 
 log_must kill $killpid
-sync
+sync_all_pools
+log_must sync
 
 typeset dir=$(get_device_dir $DISKS)
 verify_filesys "$TESTPOOL" "$TESTPOOL/$TESTFS" "$dir"

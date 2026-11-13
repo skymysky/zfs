@@ -1,4 +1,5 @@
 #!/bin/ksh
+# SPDX-License-Identifier: CDDL-1.0
 
 #
 # This file and its contents are supplied under the terms of the
@@ -8,7 +9,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -25,7 +26,7 @@
 #
 # Strategy:
 # 1. Bookmark a ZFS snapshot
-# 2. Destroy the ZFS sanpshot
+# 2. Destroy the ZFS snapshot
 # 3. Destroy the filesystem for the receive
 # 4. Verify receive of the full send stream
 # 5. Start an incremental ZFS send of the ZFS bookmark, redirect output to a
@@ -37,11 +38,6 @@
 #
 
 verify_runnable "both"
-
-# See issue: https://github.com/zfsonlinux/zfs/issues/5654
-if is_32bit; then
-	log_unsupported "Test case fails on 32-bit systems"
-fi
 
 log_assert "Verify resumability of an incremental ZFS send/receive with ZFS " \
     "bookmarks"

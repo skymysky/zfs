@@ -1,7 +1,6 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 
-#
-# CDDL HEADER START
 #
 # This file and its contents are supplied under the terms of the
 # Common Development and Distribution License ("CDDL"), version 1.0.
@@ -10,9 +9,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
-#
-# CDDL HEADER END
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -50,32 +47,38 @@ log_assert "Testing automated auto-spare FMA test"
 
 log_onexit cleanup
 
-# Clear events from previous runs
-zed_events_drain
+# Events not supported on FreeBSD
+if ! is_freebsd; then
+	# Clear events from previous runs
+	zed_events_drain
+fi
 
 TESTFILE="/$TESTPOOL/$TESTFS/testfile"
 
-for type in "mirror" "raidz" "raidz2"; do
+for type in "mirror" "raidz" "raidz2" "anymirror1" "anymirror2" "anymirror3"; do
+        if [[ "$type" =~ "anymirror" ]]; then
+                export VDEVSIZE=1073741824
+                export TESTFILE_SIZE=268435456
+        else
+                export VDEVSIZE=$MINVDEVSIZE
+                export TESTFILE_SIZE=67108864
+        fi
 	# 1. Create a pool with hot spares
-	truncate -s $SPA_MINDEVSIZE $VDEV_FILES $SPARE_FILE
-	log_must zpool create -f $TESTPOOL $type $VDEV_FILES spare $SPARE_FILE
+	log_must truncate -s $VDEVSIZE $VDEV_FILES $SPARE_FILE
+	log_must zpool create -f $TESTPOOL $type $VDEV_FILES \
+	    spare $SPARE_FILE
 
 	# 2. Create a filesystem with the primary cache disable to force reads
 	log_must zfs create -o primarycache=none $TESTPOOL/$TESTFS
-	log_must zfs set recordsize=16k $TESTPOOL/$TESTFS
+	log_must zfs set recordsize=16k compression=off $TESTPOOL/$TESTFS
 
 	# 3. Write a file to the pool to be read back
-	log_must dd if=/dev/urandom of=$TESTFILE bs=1M count=16
+	log_must file_write -o create -f $TESTFILE -b 1048576 -c $(( TESTFILE_SIZE / 1024 / 1024 )) -d R
 
 	# 4. Inject CHECKSUM ERRORS on read with a zinject error handler
-	# NOTE: checksum events are ratelimited to max 5 per second, ZED needs
-	#       10 to kick in a spare
-	log_must zinject -d $FAULT_FILE -e corrupt -f 50 -T read $TESTPOOL
-	log_must cp $TESTFILE /dev/null
-	log_must sleep 1
-	log_must cp $TESTFILE /dev/null
-	log_must sleep 1
-	log_must cp $TESTFILE /dev/null
+	log_must zinject -d $FAULT_FILE -e corrupt -f 100 -T read $TESTPOOL
+	log_must dd if=$TESTFILE of=/dev/null bs=1M count=$(( TESTFILE_SIZE / 1024 / 1024 ))
+	log_must zinject
 
 	# 5. Verify the ZED kicks in a hot spare and expected pool/device status
 	log_note "Wait for ZED to auto-spare"

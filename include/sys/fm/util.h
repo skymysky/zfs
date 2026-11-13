@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 
 /*
@@ -31,6 +22,7 @@ extern "C" {
 #endif
 
 #include <sys/nvpair.h>
+#include <sys/zfs_file.h>
 
 /*
  * Shared user/kernel definitions for class length, error channel name,
@@ -92,18 +84,20 @@ typedef struct zfs_zevent {
 
 extern void fm_init(void);
 extern void fm_fini(void);
-extern void fm_nvprint(nvlist_t *);
 extern void zfs_zevent_post_cb(nvlist_t *nvl, nvlist_t *detector);
 extern int zfs_zevent_post(nvlist_t *, nvlist_t *, zevent_cb_t *);
-extern void zfs_zevent_drain_all(int *);
-extern int zfs_zevent_fd_hold(int, minor_t *, zfs_zevent_t **);
-extern void zfs_zevent_fd_rele(int);
+extern void zfs_zevent_drain_all(uint_t *);
+extern zfs_file_t *zfs_zevent_fd_hold(int, minor_t *, zfs_zevent_t **);
+extern void zfs_zevent_fd_rele(zfs_file_t *);
 extern int zfs_zevent_next(zfs_zevent_t *, nvlist_t **, uint64_t *, uint64_t *);
 extern int zfs_zevent_wait(zfs_zevent_t *);
 extern int zfs_zevent_seek(zfs_zevent_t *, uint64_t);
 extern void zfs_zevent_init(zfs_zevent_t **);
 extern void zfs_zevent_destroy(zfs_zevent_t *);
 
+extern void zfs_zevent_track_duplicate(void);
+extern void zfs_ereport_init(void);
+extern void zfs_ereport_fini(void);
 #else
 
 static inline void fm_init(void) { }

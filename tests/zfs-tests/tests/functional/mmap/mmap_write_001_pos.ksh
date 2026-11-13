@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -33,7 +24,7 @@
 
 #
 # DESCRIPTION:
-# Writing to a file and mmaping that file at the
+# Writing to a file and mmapping that file at the
 # same time does not result in a deadlock.
 #
 # STRATEGY:
@@ -53,12 +44,14 @@ if ! is_mp; then
 fi
 
 log_must chmod 777 $TESTDIR
-mmapwrite $TESTDIR/test-write-file &
+mmapwrite $TESTDIR/normal_write_file $TESTDIR/map_write_file &
 PID_MMAPWRITE=$!
-log_note "mmapwrite $TESTDIR/test-write-file pid: $PID_MMAPWRITE"
+log_note "mmapwrite $TESTDIR/normal_write_file $TESTDIR/map_write_file"\
+	 "pid: $PID_MMAPWRITE"
 log_must sleep 30
 
 log_must kill -9 $PID_MMAPWRITE
-log_must ls -l $TESTDIR/test-write-file
+log_must ls -l $TESTDIR/normal_write_file
+log_must ls -l $TESTDIR/map_write_file
 
 log_pass "write(2) a mmap(2)'ing file succeeded."

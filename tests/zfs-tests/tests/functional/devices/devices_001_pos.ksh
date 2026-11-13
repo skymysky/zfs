@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -42,15 +33,11 @@
 # 1. Create pool and file system.
 # 2. Set devices=on on this file system.
 # 3. Separately create block device file and character file.
-# 4. Separately read from those two device files.
+# 4. Separately read and write from those two device files.
 # 5. Check the return value, and make sure it succeeds.
 #
 
 verify_runnable "global"
-
-if is_32bit; then
-	log_unsupported "Test case fails on 32-bit systems"
-fi
 
 log_assert "Setting devices=on on file system, the devices files in this file" \
 	"system can be used."
@@ -59,12 +46,18 @@ log_onexit cleanup
 log_must zfs set devices=on $TESTPOOL/$TESTFS
 
 #
-# Separately create block device file and character device file, then try to
-# open them and make sure it succeed.
+# Create block device file backed by a ZFS volume.
+# Verify it can be opened, written, and read.
 #
-create_dev_file b $TESTDIR/$TESTFILE1
-log_must dd if=$TESTDIR/$TESTFILE1 of=$TESTDIR/$TESTFILE1.out count=1
+create_dev_file b $TESTDIR/$TESTFILE1 $ZVOL_DEVDIR/$TESTPOOL/$TESTVOL
+log_must dd if=/dev/urandom of=$TESTDIR/$TESTFILE1.out1 count=1 bs=128k
+log_must dd if=$TESTDIR/$TESTFILE1.out1 of=$TESTDIR/$TESTFILE1 count=1 bs=128k
+log_must dd if=$TESTDIR/$TESTFILE1 of=$TESTDIR/$TESTFILE1.out2 count=1 bs=128k
+log_must cmp $TESTDIR/$TESTFILE1.out1 $TESTDIR/$TESTFILE1.out2
+
+# Create character device file backed by /dev/null
+# Verify it can be opened and written.
 create_dev_file c $TESTDIR/$TESTFILE2
-log_must dd if=$TESTDIR/$TESTFILE2 of=$TESTDIR/$TESTFILE2.out count=1
+log_must dd if=/dev/urandom of=$TESTDIR/$TESTFILE2 count=1 bs=128k
 
 log_pass "Setting devices=on on file system and testing it pass."

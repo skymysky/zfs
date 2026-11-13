@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -43,19 +34,12 @@
 #
 #
 
-# check to see if we have zfs unallow
-zfs 2>&1 | grep "unallow" > /dev/null
-if (($? != 0)) then
-        log_unsupported "ZFS unallow not supported on this machine."
-fi
-
 log_assert "zfs unallow returns an error when run as a user"
 
 log_mustnot zfs unallow everyone $TESTPOOL/$TESTFS/allowed
 
 # now check with zfs allow to see if the permissions are still there
-OUTPUT=$(zfs allow $TESTPOOL/$TESTFS/allowed | grep "Local+Descendent" )
-if [ -z "$OUTPUT" ]
+if ! zfs allow $TESTPOOL/$TESTFS/allowed | grep -q "Local+Descendent"
 then
 	log_fail "Error - create permissions were unallowed on \
 	$TESTPOOL/$TESTFS/allowed"

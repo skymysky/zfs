@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -45,7 +36,7 @@
 #	  setuid		setuid/nosetuid
 #
 # STRATEGY:
-#	1. Create filesystem and get origianl property value.
+#	1. Create filesystem and get original property value.
 #	2. Using 'zfs mount -o' to set filesystem property.
 #	3. Verify the property was set temporarily.
 #	4. Verify it will not affect the property that is stored on disk.
@@ -62,7 +53,10 @@ log_assert "Verify '-o' will set filesystem property temporarily, " \
 	"without affecting the property that is stored on disk."
 log_onexit cleanup
 
-set -A properties "atime" "devices" "exec" "readonly" "setuid"
+set -A properties "atime" "exec" "readonly" "setuid"
+if ! is_freebsd; then
+	properties+=("devices")
+fi
 
 #
 # Get the specified filesystem property reverse mount option.
@@ -78,16 +72,21 @@ function get_reverse_option
 	# Define property value: "reverse if value=on" "reverse if value=off"
 	if is_linux; then
 		set -A values "noatime"   "atime" \
-			      "nodev"     "dev" \
 			      "noexec"    "exec" \
 			      "rw"        "ro" \
-			      "nosuid"    "suid"
-	else
+			      "nosuid"    "suid" \
+			      "nodev"     "dev"
+	elif is_freebsd; then
 		set -A values "noatime"   "atime" \
-			      "nodevices" "devices" \
 			      "noexec"    "exec" \
 			      "rw"        "ro" \
 			      "nosetuid"  "setuid"
+	else
+		set -A values "noatime"   "atime" \
+			      "noexec"    "exec" \
+			      "rw"        "ro" \
+			      "nosetuid"  "setuid" \
+			      "nodevices" "devices"
 	fi
 
 	typeset -i i=0
@@ -104,7 +103,7 @@ function get_reverse_option
 
 	typeset val
 	typeset -i ind=0
-	val=$(get_prop $prop $fs) || log_fail "get_prop $prop $fs"
+	val=$(get_prop $prop $fs)
 	if [[ $val == "on" ]]; then
 		(( ind = i * 2 ))
 	else
@@ -119,14 +118,13 @@ cleanup
 
 for property in ${properties[@]}; do
 	orig_val=$(get_prop $property $fs)
-	(($? != 0)) && log_fail "get_prop $property $fs"
 
 	# Set filesystem property temporarily
 	reverse_opt=$(get_reverse_option $fs $property)
-	log_must zfs mount -o remount,$reverse_opt $fs
+	log_must zfs unmount $fs
+	log_must zfs mount -o $reverse_opt $fs
 
 	cur_val=$(get_prop $property $fs)
-	(($? != 0)) && log_fail "get_prop $property $fs"
 
 	# In LZ, a user with all zone privileges can never with "devices"
 	if ! is_global_zone && [[ $property == devices ]] ; then
@@ -135,7 +133,7 @@ for property in ${properties[@]}; do
 				"be enabled in LZ"
 		fi
 	elif [[ $orig_val == $cur_val ]]; then
-		log_fail "zfs mount -o remount,$reverse_opt " \
+		log_fail "zfs mount -o $reverse_opt " \
 			"doesn't change property."
 	fi
 
@@ -144,9 +142,8 @@ for property in ${properties[@]}; do
 	log_must zfs mount $fs
 
 	cur_val=$(get_prop $property $fs)
-	(($? != 0)) && log_fail "get_prop $property $fs"
 	if [[ $orig_val != $cur_val ]]; then
-		log_fail "zfs mount -o remount,$reverse_opt " \
+		log_fail "zfs mount -o $reverse_opt " \
 			"change the property that is stored on disks"
 	fi
 done

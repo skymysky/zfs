@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -39,15 +30,15 @@
 # STRATEGY:
 #	1. Create a multiple depth filesystem.
 #	2. 'zfs get -d <n>' to get the output.
-#	3. 'zfs get -r|egrep' to get the expected output.
+#	3. 'zfs get -r|grep' to get the expected output.
 #	4. Compare the two outputs, they should be same.
 #
 
 verify_runnable "both"
 
-# See issue: https://github.com/zfsonlinux/zfs/issues/5479
-if is_kmemleak; then
-	log_unsupported "Test case runs slowly when kmemleak is enabled"
+if is_kmemleak && has_mitigations; then
+	log_unsupported "Test case runs slowly when kmemleak and CPU" \
+	    "mitigations are enabled"
 fi
 
 log_assert "'zfs get -d <n>' should get expected output."
@@ -56,13 +47,13 @@ log_onexit depth_fs_cleanup
 set -A all_props type used available creation volsize referenced \
 	compressratio mounted origin recordsize quota reservation mountpoint \
 	sharenfs checksum compression atime devices exec readonly setuid \
-	zoned snapdir acltype aclinherit canmount primarycache secondarycache \
+	snapdir aclinherit canmount primarycache secondarycache version \
 	usedbychildren usedbydataset usedbyrefreservation usedbysnapshots \
 	userquota@root groupquota@root userused@root groupused@root
-
-zfs upgrade -v > /dev/null 2>&1
-if [[ $? -eq 0 ]]; then
-	set -A all_props ${all_props[*]} version
+if is_freebsd; then
+	set -A all_props ${all_props[*]} jailed aclmode
+else
+	set -A all_props ${all_props[*]} zoned acltype
 fi
 
 depth_fs_setup
@@ -82,11 +73,27 @@ for dp in ${depth_array[@]}; do
 	done
 	for prop in $(gen_option_str "${all_props[*]}" "" "," $prop_numb); do
 		log_must eval "zfs get -H -d $dp -o name $prop $DEPTH_FS > $DEPTH_OUTPUT"
-		log_must eval "zfs get -rH -o name $prop $DEPTH_FS | egrep -e '$eg_opt' > $EXPECT_OUTPUT"
+		log_must eval "zfs get -rH -o name $prop $DEPTH_FS | grep -E '$eg_opt' > $EXPECT_OUTPUT"
 		log_must diff $DEPTH_OUTPUT $EXPECT_OUTPUT
 	done
 	(( old_val=dp ))
 done
+
+# Ensure 'zfs get -t snapshot <dataset>' works as though -d 1 was specified
+log_must eval "zfs get -H -t snapshot -o name creation $DEPTH_FS > $DEPTH_OUTPUT"
+log_must eval "zfs get -H -t snapshot -d 1 -o name creation $DEPTH_FS > $EXPECT_OUTPUT"
+log_must diff $DEPTH_OUTPUT $EXPECT_OUTPUT
+
+# Ensure 'zfs get -t snap' works as a shorthand for 'zfs get -t snapshot'
+log_must eval "zfs get -H -t snap -d 1 -o name creation $DEPTH_FS > $DEPTH_OUTPUT"
+log_must eval "zfs get -H -t snapshot -d 1 -o name creation $DEPTH_FS > $EXPECT_OUTPUT"
+log_must diff $DEPTH_OUTPUT $EXPECT_OUTPUT
+
+# Ensure 'zfs get -t bookmark <dataset>' works as though -d 1 was specified
+log_must eval "zfs get -H -t bookmark -o name creation $DEPTH_FS > $DEPTH_OUTPUT"
+log_must eval "zfs get -H -t bookmark -d 1 -o name creation $DEPTH_FS > $EXPECT_OUTPUT"
+log_must diff $DEPTH_OUTPUT $EXPECT_OUTPUT
+
 
 log_pass "'zfs get -d <n>' should get expected output."
 

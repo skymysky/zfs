@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 
 /*
@@ -24,18 +15,10 @@
  * Use is subject to license terms.
  */
 
-
-
-#include <sys/stropts.h>
 #include <sys/isa_defs.h>
 #include <sys/nvpair.h>
 #include <sys/sysmacros.h>
-#if defined(_KERNEL) && !defined(_BOOT)
-#include <sys/varargs.h>
-#else
-#include <stdarg.h>
-#include <strings.h>
-#endif
+#include <sys/mod.h>
 
 /*
  * This allocator is very simple.
@@ -94,11 +77,11 @@ nv_fixed_alloc(nv_alloc_t *nva, size_t size)
 	return ((void *)new);
 }
 
-/*ARGSUSED*/
 static void
 nv_fixed_free(nv_alloc_t *nva, void *buf, size_t size)
 {
 	/* don't free memory in the pre-allocated buffer */
+	(void) nva, (void) buf, (void) size;
 }
 
 static void
@@ -109,7 +92,7 @@ nv_fixed_reset(nv_alloc_t *nva)
 	nvb->nvb_cur = (uintptr_t)&nvb[1];
 }
 
-const nv_alloc_ops_t nv_fixed_ops_def = {
+static const nv_alloc_ops_t nv_fixed_ops_def = {
 	.nv_ao_init = nv_fixed_init,
 	.nv_ao_fini = NULL,
 	.nv_ao_alloc = nv_fixed_alloc,
@@ -117,8 +100,6 @@ const nv_alloc_ops_t nv_fixed_ops_def = {
 	.nv_ao_reset = nv_fixed_reset
 };
 
-const nv_alloc_ops_t *nv_fixed_ops = &nv_fixed_ops_def;
+const nv_alloc_ops_t *const nv_fixed_ops = &nv_fixed_ops_def;
 
-#if defined(_KERNEL) && defined(HAVE_SPL)
 EXPORT_SYMBOL(nv_fixed_ops);
-#endif

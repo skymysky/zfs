@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -48,11 +39,9 @@ function cleanup
 {
 	typeset -i i=0
 
-	datasetexists $rst_root && \
-		log_must zfs destroy -Rf $rst_root
+	datasetexists $rst_root && destroy_dataset $rst_root -Rf
 	while (( i < 2 )); do
-		snapexists ${orig_snap[$i]} && \
-			log_must zfs destroy -f ${orig_snap[$i]}
+		snapexists ${orig_snap[$i]} && destroy_dataset ${orig_snap[$i]} -f
 		log_must rm -f ${bkup[$i]}
 
 		(( i = i + 1 ))
@@ -63,8 +52,7 @@ function cleanup
 
 function recreate_root
 {
-	datasetexists $rst_root && \
-		log_must zfs destroy -Rf $rst_root
+	datasetexists $rst_root && destroy_dataset $rst_root -Rf
 	if [[ -d $TESTDIR1 ]] ; then
 		log_must rm -rf $TESTDIR1
 	fi
@@ -76,7 +64,7 @@ log_assert "Verifying 'zfs receive [<filesystem|snapshot>] -d <filesystem>' work
 log_onexit cleanup
 
 typeset datasets="$TESTPOOL/$TESTFS $TESTPOOL"
-set -A bkup "/var/tmp/fullbkup" "/var/tmp/incbkup"
+set -A bkup "$TEST_BASE_DIR/fullbkup" "$TEST_BASE_DIR/incbkup"
 orig_sum=""
 rst_sum=""
 rst_root=$TESTPOOL/rst_ctr
@@ -108,10 +96,7 @@ for orig_fs in $datasets ; do
 
 	typeset -i i=0
 	while (( i < ${#orig_snap[*]} )); do
-		file_write -o create -f ${orig_data[$i]} -b 512 \
-		    -c 8 >/dev/null 2>&1
-		(( $? != 0 )) && \
-			log_fail "Writing data into zfs filesystem fails."
+		log_must eval "file_write -o create -f ${orig_data[$i]} -b 512 -c 8 >/dev/null 2>&1"
 		log_must zfs snapshot ${orig_snap[$i]}
 		if (( i < 1 )); then
 			log_must eval "zfs send ${orig_snap[$i]} > ${bkup[$i]}"
@@ -155,7 +140,7 @@ for orig_fs in $datasets ; do
 
 	log_must zfs destroy -Rf $rst_fs
 
-	log_note "Verfiying 'zfs receive -d <filesystem>' works."
+	log_note "Verifying 'zfs receive -d <filesystem>' works."
 
 	i=0
 	while (( i < ${#bkup[*]} )); do

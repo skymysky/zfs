@@ -1,4 +1,5 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 
 #
 # This file and its contents are supplied under the terms of the
@@ -8,7 +9,7 @@
 #
 # A full copy of the text of the CDDL should have accompanied this
 # source.  A copy of the CDDL is also available via the Internet at
-# http://www.illumos.org/license/CDDL.
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -28,7 +29,7 @@
 # 2. Mess up the contents of the stream state file on disk
 # 3. Try ZFS receive, which should fail with a checksum mismatch error
 # 4. ZFS send to the stream state file again using the receive_resume_token
-# 5. ZFS receieve and verify the receive completes successfully
+# 5. ZFS receive and verify the receive completes successfully
 # 6. Repeat steps on an incremental ZFS send
 #
 

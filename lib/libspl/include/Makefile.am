@@ -1,27 +1,102 @@
-SUBDIRS = ia32 rpc sys util
-
+# SPDX-License-Identifier: CDDL-1.0
 libspldir = $(includedir)/libspl
 libspl_HEADERS = \
-	$(top_srcdir)/lib/libspl/include/assert.h \
-	$(top_srcdir)/lib/libspl/include/atomic.h \
-	$(top_srcdir)/lib/libspl/include/attr.h \
-	$(top_srcdir)/lib/libspl/include/devid.h \
-	$(top_srcdir)/lib/libspl/include/libdevinfo.h \
-	$(top_srcdir)/lib/libspl/include/libgen.h \
-	$(top_srcdir)/lib/libspl/include/libshare.h \
-	$(top_srcdir)/lib/libspl/include/limits.h \
-	$(top_srcdir)/lib/libspl/include/locale.h \
-	$(top_srcdir)/lib/libspl/include/note.h \
-	$(top_srcdir)/lib/libspl/include/statcommon.h \
-	$(top_srcdir)/lib/libspl/include/stdio.h \
-	$(top_srcdir)/lib/libspl/include/stdlib.h \
-	$(top_srcdir)/lib/libspl/include/string.h \
-	$(top_srcdir)/lib/libspl/include/strings.h \
-	$(top_srcdir)/lib/libspl/include/stropts.h \
-	$(top_srcdir)/lib/libspl/include/synch.h \
-	$(top_srcdir)/lib/libspl/include/thread.h \
-	$(top_srcdir)/lib/libspl/include/tzfile.h \
-	$(top_srcdir)/lib/libspl/include/ucred.h \
-	$(top_srcdir)/lib/libspl/include/umem.h \
-	$(top_srcdir)/lib/libspl/include/unistd.h \
-	$(top_srcdir)/lib/libspl/include/zone.h
+	%D%/assert.h \
+	%D%/libgen.h \
+	%D%/libspl.h \
+	%D%/statcommon.h \
+	%D%/stdlib.h \
+	%D%/string.h \
+	%D%/unistd.h \
+	%D%/zone.h
+
+if BUILD_FREEBSD
+libspl_HEADERS += \
+	%D%/os/freebsd/fcntl.h
+endif
+
+
+libspl_rpcdir = $(libspldir)/rpc
+libspl_rpc_HEADERS = \
+	%D%/rpc/xdr.h
+
+
+libspl_sysdir = $(libspldir)/sys
+libspl_sys_HEADERS = \
+	%D%/sys/acl.h \
+	%D%/sys/acl_impl.h \
+	%D%/sys/atomic.h \
+	%D%/sys/backtrace.h \
+	%D%/sys/callb.h \
+	%D%/sys/cmn_err.h \
+	%D%/sys/condvar.h \
+	%D%/sys/cred.h \
+	%D%/sys/debug.h \
+	%D%/sys/feature_tests.h \
+	%D%/sys/isa_defs.h \
+	%D%/sys/kmem.h \
+	%D%/sys/kmem_cache.h \
+	%D%/sys/kstat.h \
+	%D%/sys/list.h \
+	%D%/sys/list_impl.h \
+	%D%/sys/misc.h \
+	%D%/sys/mod.h \
+	%D%/sys/mutex.h \
+	%D%/sys/policy.h \
+	%D%/sys/processor.h \
+	%D%/sys/procfs_list.h \
+	%D%/sys/random.h \
+	%D%/sys/rwlock.h \
+	%D%/sys/sid.h \
+	%D%/sys/simd.h \
+	%D%/sys/stdtypes.h \
+	%D%/sys/string.h \
+	%D%/sys/sunddi.h \
+	%D%/sys/sysmacros.h \
+	%D%/sys/systeminfo.h \
+	%D%/sys/systm.h \
+	%D%/sys/thread.h \
+	%D%/sys/taskq.h \
+	%D%/sys/time.h \
+	%D%/sys/timer.h \
+	%D%/sys/trace.h \
+	%D%/sys/tsd.h \
+	%D%/sys/tunables.h \
+	%D%/sys/types.h \
+	%D%/sys/types32.h \
+	%D%/sys/uio.h \
+	%D%/sys/vmem.h \
+	%D%/sys/vnode.h \
+	%D%/sys/wmsum.h \
+	%D%/sys/zone.h
+
+libspl_ia32dir = $(libspldir)/sys/ia32
+
+if BUILD_LINUX
+libspl_sys_HEADERS += \
+	%D%/os/linux/sys/byteorder.h \
+	%D%/os/linux/sys/errno.h \
+	%D%/os/linux/sys/mnttab.h \
+	%D%/os/linux/sys/mount.h \
+	%D%/os/linux/sys/param.h \
+	%D%/os/linux/sys/stat.h \
+	%D%/os/linux/sys/vfs.h
+
+libspl_ia32_HEADERS = \
+	%D%/os/linux/sys/ia32/asm_linkage.h
+endif
+
+if BUILD_FREEBSD
+libspl_sys_HEADERS += \
+	%D%/os/freebsd/sys/byteorder.h \
+	%D%/os/freebsd/sys/fcntl.h \
+	%D%/os/freebsd/sys/file.h \
+	%D%/os/freebsd/sys/mnttab.h \
+	%D%/os/freebsd/sys/mount.h \
+	%D%/os/freebsd/sys/param.h \
+	%D%/os/freebsd/sys/stat.h \
+	%D%/os/freebsd/sys/vfs.h
+
+libspl_ia32_HEADERS = \
+	%D%/os/freebsd/sys/ia32/asm_linkage.h
+endif

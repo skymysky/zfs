@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -46,9 +37,8 @@ verify_runnable "both"
 
 function cleanup
 {
-	if datasetexists $TESTPOOL/$TESTFS ; then
-		log_must zfs destroy -Rf $TESTPOOL/$TESTFS
-	fi
+	datasetexists $TESTPOOL/$TESTFS && \
+		destroy_dataset $TESTPOOL/$TESTFS -Rf
 	log_must zfs create $TESTPOOL/$TESTFS
 	log_must zfs set mountpoint=$TESTDIR $TESTPOOL/$TESTFS
 
@@ -117,26 +107,26 @@ log_must diff $SRC_FILE $obj
 if is_global_zone; then
 	vol=$TESTPOOL/$TESTFS/vol.$$ ;	volclone=$TESTPOOL/$TESTFS/volclone.$$
 	log_must zfs create -V 100M $vol
-	block_device_wait
 
 	obj=$(target_obj $vol)
+	block_device_wait $obj
 	log_must dd if=$SRC_FILE of=$obj bs=$BS count=$CNT
 
 	snap=${vol}@snap.$$
 	log_must zfs snapshot $snap
 	log_must zfs clone $snap $volclone
-	block_device_wait
 
 	# Rename dataset & clone
 	log_must zfs rename $vol ${vol}-new
 	log_must zfs rename $volclone ${volclone}-new
-	block_device_wait
 
 	# Compare source file and target file
 	obj=$(target_obj ${vol}-new)
+	block_device_wait $obj
 	log_must dd if=$obj of=$DST_FILE bs=$BS count=$CNT
 	log_must diff $SRC_FILE $DST_FILE
 	obj=$(target_obj ${volclone}-new)
+	block_device_wait $obj
 	log_must dd if=$obj of=$DST_FILE bs=$BS count=$CNT
 	log_must diff $SRC_FILE $DST_FILE
 
@@ -144,10 +134,10 @@ if is_global_zone; then
 	log_must zfs rename ${vol}-new $vol
 	log_must zfs rename $snap ${snap}-new
 	log_must zfs clone ${snap}-new $volclone
-	block_device_wait
 
 	# Compare source file and target file
 	obj=$(target_obj $volclone)
+	block_device_wait $obj
 	log_must dd if=$obj of=$DST_FILE bs=$BS count=$CNT
 	log_must diff $SRC_FILE $DST_FILE
 fi

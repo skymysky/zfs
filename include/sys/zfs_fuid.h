@@ -1,22 +1,13 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
@@ -27,7 +18,6 @@
 #define	_SYS_FS_ZFS_FUID_H
 
 #ifdef _KERNEL
-#include <sys/kidmap.h>
 #include <sys/sid.h>
 #include <sys/dmu.h>
 #include <sys/zfs_vfsops.h>
@@ -113,13 +103,13 @@ extern zfs_fuid_info_t *zfs_fuid_info_alloc(void);
 extern void zfs_fuid_info_free(zfs_fuid_info_t *);
 extern boolean_t zfs_groupmember(zfsvfs_t *, uint64_t, cred_t *);
 void zfs_fuid_sync(zfsvfs_t *, dmu_tx_t *);
-extern int zfs_fuid_find_by_domain(zfsvfs_t *, const char *domain,
-    char **retdomain, boolean_t addok);
 extern const char *zfs_fuid_find_by_idx(zfsvfs_t *zfsvfs, uint32_t idx);
 extern void zfs_fuid_txhold(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
+extern int zfs_id_to_fuidstr(zfsvfs_t *zfsvfs, const char *domain, uid_t rid,
+    char *buf, size_t len, boolean_t addok);
 #endif
 
-char *zfs_fuid_idx_domain(avl_tree_t *, uint32_t);
+const char *zfs_fuid_idx_domain(avl_tree_t *, uint32_t);
 void zfs_fuid_avl_tree_create(avl_tree_t *, avl_tree_t *);
 uint64_t zfs_fuid_table_load(objset_t *, uint64_t, avl_tree_t *, avl_tree_t *);
 void zfs_fuid_table_destroy(avl_tree_t *, avl_tree_t *);

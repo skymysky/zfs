@@ -1,23 +1,14 @@
 #!/bin/ksh -p
+# SPDX-License-Identifier: CDDL-1.0
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
-#
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# https://opensource.org/license/CDDL-1.0.
 #
 
 #
@@ -60,18 +51,12 @@ function cleanup
 function exec_n_check
 {
 	typeset expect_value=$1
-
 	shift
-	$@
-	ret=$?
-	if [[ $ret != $expect_value ]]; then
-		log_fail "Unexpected return code: '$ret'"
-	fi
-
-	return 0
+	"$@"
+	log_must [ $? = $expect_value ]
 }
 
-log_assert "Setting exec=off on a filesystem, processes can not be executed " \
+log_assert "Setting exec=off on a filesystem, processes can not be executed" \
 	"from this file system."
 log_onexit cleanup
 
@@ -79,11 +64,11 @@ log_must cp  $STF_PATH/ls $TESTDIR/myls
 log_must zfs set exec=off $TESTPOOL/$TESTFS
 
 if is_linux; then
-	log_must exec_n_check 126 $TESTDIR/myls
-	log_must exec_n_check 1 mmap_exec $TESTDIR/myls	# EPERM
+	exp=1 # EPERM
 else
-	log_must exec_n_check 126 $TESTDIR/myls
-	log_must exec_n_check 13 mmap_exec $TESTDIR/myls # EACCES
+	exp=13 # EACCES
 fi
+log_must exec_n_check 126  $TESTDIR/myls
+log_must exec_n_check $exp mmap_exec $TESTDIR/myls
 
 log_pass "Setting exec=off on filesystem testing passed."

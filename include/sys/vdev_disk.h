@@ -1,41 +1,37 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
- * CDDL HEADER START
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
  *
- * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
- *
- * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * When distributing Covered Code, include this CDDL HEADER in each
- * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
- * If applicable, add the following below this CDDL HEADER, with the
- * fields enclosed by brackets "[]" replaced with your own identifying
- * information: Portions Copyright [yyyy] [name of copyright owner]
- *
- * CDDL HEADER END
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
  */
 /*
  * Copyright (C) 2008-2010 Lawrence Livermore National Security, LLC.
  * Produced at Lawrence Livermore National Laboratory (cf, DISCLAIMER).
  * Written by Brian Behlendorf <behlendorf1@llnl.gov>.
  * LLNL-CODE-403049.
+ * Copyright (c) 2018 by Delphix. All rights reserved.
  */
 
 #ifndef _SYS_VDEV_DISK_H
 #define	_SYS_VDEV_DISK_H
 
+/*
+ * Don't start the slice at the default block of 34; many storage
+ * devices will use a stripe width of 128k, other vendors prefer a 1m
+ * alignment.  It is best to play it safe and ensure a 1m alignment
+ * given 512B blocks.  When the block size is larger by a power of 2
+ * we will still be 1m aligned.  Some devices are sensitive to the
+ * partition ending alignment as well.
+ */
+#define	NEW_START_BLOCK		2048
+#define	PARTITION_END_ALIGNMENT	2048
+
 #ifdef _KERNEL
 #include <sys/vdev.h>
-
-typedef struct vdev_disk {
-	ddi_devid_t		vd_devid;
-	char			*vd_minor;
-	struct block_device	*vd_bdev;
-} vdev_disk_t;
-
 #endif /* _KERNEL */
 #endif /* _SYS_VDEV_DISK_H */
